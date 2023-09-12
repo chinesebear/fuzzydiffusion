@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from wget import download
 from PIL import Image
 from scipy.io import loadmat
+from itertools import chain
 
 
 def bar_blank(current, total, width=80):
@@ -53,14 +54,19 @@ def read_coco():
 
 def read_flowers():
     dataset_path = options.base_path+"output/datasets/nelorth/oxford-flowers/"
+    fd = open(dataset_path+"/image_label.txt", "r")
+    labels = []
+    for line in fd.readlines():
+        line.replace("\r", '')
+        labels.append('a '+line + " flower")
     dataset = read_dataset("nelorth/oxford-flowers", '')
     train_len = dataset['train'].num_rows
     train_data = np.empty([train_len], dtype=int).tolist()
     train_iter = iter(dataset['train'])
-    for i in tqdm(range(train_len),"Flowers"):
+    for i in tqdm(range(train_len),"flowers"):
         data = next(train_iter)
         img = data['image']
-        text = data['label']
+        text = labels[data['label']]
         filename = str(i)+".jpg"
         local_path = dataset_path+"train/"
         local_img = local_path+filename
@@ -71,7 +77,7 @@ def read_flowers():
     test_len = dataset['test'].num_rows
     test_data = np.empty([test_len], dtype=int).tolist()
     test_iter = iter(dataset['test'])
-    for i in tqdm(range(test_len),"Flowers"):
+    for i in tqdm(range(test_len),"flowers"):
         data = next(test_iter)
         img = data['image']
         text = data['label']
@@ -93,7 +99,7 @@ def read_cub200():
     dataset = [read_dataset(dataset_name[0], ''), read_dataset(dataset_name[1], '')]
     train_len = dataset[0]['train'].num_rows + dataset[1]['train'].num_rows
     train_data = np.empty([train_len], dtype=int).tolist()
-    train_iter = iter(dataset[0]['train'] + dataset[1]['train'])
+    train_iter = chain(iter(dataset[0]['train']) , iter(dataset[1]['train']))
     for i in tqdm(range(train_len),"cub200"):
         data = next(train_iter)
         img = data['image']
@@ -104,7 +110,11 @@ def read_cub200():
         if not os.path.exists(local_img):
             img.save(local_img)
         train_data[i] = [local_img, text]
-    return train_data
+    part = int(train_len /10)
+    valid_data = train_data[train_len - 2* part : train_len - part]
+    test_data = train_data[train_len - part : ]
+    train_data = train_data[:train_len - 2* part]
+    return train_data,valid_data, test_data
 
 def read_pokemon():
     dataset_name = 'lambdalabs/pokemon-blip-captions'
@@ -123,7 +133,11 @@ def read_pokemon():
         if not os.path.exists(local_img):
             img.save(local_img)
         train_data[i] = [local_img, text]
-    return train_data
+    part = int(train_len /10)
+    valid_data = train_data[train_len - 2* part : train_len - part]
+    test_data = train_data[train_len - part : ]
+    train_data = train_data[:train_len - 2* part]
+    return train_data,valid_data, test_data
 
 def read_imagereward():
     dataset_name = 'THUDM/ImageRewardDB'
@@ -154,7 +168,7 @@ def read_imagereward():
         img = data['image']
         text = data['prompt']
         filename = str(i)+".jpg"
-        local_path = dataset_path+"train/"
+        local_path = dataset_path+"validation/"
         local_img = local_path+filename
         if not os.path.exists(local_img):
             img.save(local_img)
@@ -168,7 +182,7 @@ def read_imagereward():
         img = data['image']
         text = data['prompt']
         filename = str(i)+".jpg"
-        local_path = dataset_path+"train/"
+        local_path = dataset_path+"test/"
         local_img = local_path+filename
         if not os.path.exists(local_img):
             img.save(local_img)
@@ -185,7 +199,7 @@ def read_cifar10():
     train_iter = iter(dataset['train'])
     for i in tqdm(range(train_len),"cifar10"):
         data = next(train_iter)
-        img = data['image']
+        img = data['img']
         text = data['label']
         filename = str(i)+".jpg"
         local_path = dataset_path+"train/"
@@ -199,10 +213,10 @@ def read_cifar10():
     test_iter = iter(dataset['test'])
     for i in tqdm(range(test_len),"cifar10"):
         data = next(test_iter)
-        img = data['image']
+        img = data['img']
         text = data['label']
         filename = str(i)+".jpg"
-        local_path = dataset_path+"train/"
+        local_path = dataset_path+"test/"
         local_img = local_path+filename
         if not os.path.exists(local_img):
             img.save(local_img)
@@ -212,10 +226,27 @@ def read_cifar10():
     test_data = test_data[part:]
     return train_data, valid_data, test_data
 
+def read_data(name):
+    if name == 'coco':
+        return read_coco()
+    elif name == 'flowers':
+        return read_flowers()
+    elif name == 'pokemon':
+        return read_pokemon()
+    elif name == 'imagereward':
+        return read_imagereward()
+    elif name == 'cub200':
+        return read_cub200()
+    elif name == 'cifar10':
+        return read_cifar10()
+    else:
+        logger.error("dataset %s not exist!" %(name))
+
+
 if __name__ == '__main__':
     # read_coco()
     # read_flowers()
     # read_pokemon()
     # read_imagereward()
-    read_cub200()
-    # read_cifar10()
+    # read_cub200()
+    read_cifar10()

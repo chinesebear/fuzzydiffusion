@@ -13,7 +13,7 @@ import numpy as np
 from model import GaussianDiffusionSampler, GaussianDiffusionTrainer, UNet
 from scheduler import GradualWarmupScheduler
 from setting import options
-from loader import read_flowers,read_cifar10
+from loader import read_data
 
 
 def save_model(model,file):
@@ -25,13 +25,12 @@ def load_model(model, file):
     path = options.model_parameter_path+file+".pth"
     if os.path.exists(path):
         model.load_state_dict(torch.load(path))
-        model.eval()
         logger.info("load %s model parameters done, %s." %(file, path))
     else:
         logger.error("load %s model parameters fail, %s." %(file, path))
     
 def save_img(img, file):
-    path = options.img_path+file+".png"
+    path = options.img_path+file+".jpg"
     img = Image.fromarray(img)
     img.save(path)
     logger.info("save %s image done, %s." %(file, path))
@@ -39,7 +38,7 @@ def save_img(img, file):
 def train():
     log_file = logger.add(options.base_path+"output/log/train-"+str(datetime.date.today()) +'.log')
     # dataset
-    train_data,_,_ = read_flowers()
+    train_data,_,_ = read_data('flowers')
 
     # model setup
     net_model = UNet(T=options.T, ch=options.unet.channel, ch_mult=options.unet.channel_mult, attn=options.unet.attn,
@@ -52,20 +51,21 @@ def train():
         optimizer=optimizer, multiplier=2.0, warm_epoch=20, after_scheduler=cosineScheduler)
     trainer = GaussianDiffusionTrainer(
         net_model, options.diff.beta_1, options.diff.beta_T, options.T).to(options.device)
-
     # start training
     for i in range(options.epoch):
         count = 0
         step = int(len(train_data) / 100)
         total_loss = 0
-        for image, label in train_data:
+        for image, text in train_data:
             # train
             optimizer.zero_grad()
-            img = Image.open(image).resize((32,32))
-            img = np.array(img) 
+            img = Image.open(image)
+            img = img.resize(options.img_size)
+            img = np.array(img)
             H, W, C = img.shape
             x_0 = torch.from_numpy(img).view(1, C, H, W).to(options.device).float()
-            loss = trainer(x_0).sum() / 1000.
+            x_0 = torch.clamp(x_0, 0, 1)
+            loss = trainer(x_0).sum()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(
                 net_model.parameters(), 1.0)
@@ -89,12 +89,13 @@ def eval():
             model, options.diff.beta_1, options.diff.beta_T, options.T).to(options.device)
         # Sampled from standard normal distribution
         noisyImage = torch.randn(
-            size=[options.batch_size, 3, 32, 32], device=options.device)
+            size=[options.batch_size, 3, options.img_width, options.img_hight], device=options.device)
         saveNoisy = torch.clamp(noisyImage * 0.5 + 0.5, 0, 1)
-        save_image(saveNoisy, "noisy")
+        save_image(saveNoisy, options.img_path+"noisy.jpg")
         sampledImgs = sampler(noisyImage)
         sampledImgs = sampledImgs * 0.5 + 0.5  # [0 ~ 1]
-        save_image(sampledImgs, "sampled")
+        save_image(sampledImgs, options.img_path+"sampled.jpg")
         
 if __name__ == '__main__':
-    train()
+    # train()
+    eval()
