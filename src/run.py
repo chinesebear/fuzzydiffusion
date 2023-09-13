@@ -1,5 +1,6 @@
 import os
 import datetime
+import time
 
 import torch
 import torch.optim as optim
@@ -12,11 +13,28 @@ import numpy as np
 
 from model import GaussianDiffusionSampler, GaussianDiffusionTrainer, UNet
 from scheduler import GradualWarmupScheduler
-from setting import options
+from setting import options,setting_info
 from loader import read_data
 
+torch.backends.cudnn.enabled = True
+torch.backends.cudnn.benchmark = True
+
+start_time = time.time()
+
+def func_start():
+    global start_time
+    start_time = time.time()
+
+def func_cost():
+    global start_time
+    cur_time = time.time()
+    delta_time = cur_time - start_time
+    start_time = time.time()
+    return int(delta_time)
 
 def save_model(model,file):
+    path = options.model_parameter_path+"-"+str(datetime.datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))+".pth"
+    torch.save(model.state_dict(), path)
     path = options.model_parameter_path+file+".pth"
     torch.save(model.state_dict(), path)
     logger.info("save %s model parameters done, %s" %(file, path))
@@ -35,6 +53,18 @@ def save_img(img, file):
     img.save(path)
     logger.info("save %s image done, %s." %(file, path))
 
+def img_to_tensor(images):
+    imgs = []
+    for img in images:
+        img = np.array(img)
+        H, W, C = img.shape
+        img = img.reshape((C, H, W))
+        imgs.append(img)
+    imgs = np.array(imgs)
+    x_0 = torch.from_numpy(imgs).to(options.device).float()
+    x_0 = torch.clamp(x_0, 0, 1)
+    return x_0
+
 def train():
     log_file = logger.add(options.base_path+"output/log/train-"+str(datetime.date.today()) +'.log')
     # dataset
@@ -43,59 +73,70 @@ def train():
     # model setup
     net_model = UNet(T=options.T, ch=options.unet.channel, ch_mult=options.unet.channel_mult, attn=options.unet.attn,
                      num_res_blocks=options.unet.num_res_blocks, dropout=options.unet.dropout).to(options.device)
+    logger.info("[model setting] %s" %(setting_info()))
+    # load_model(net_model, "diffusion")
     optimizer = torch.optim.AdamW(
         net_model.parameters(), lr=options.learning_rate, weight_decay=1e-4)
     cosineScheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer=optimizer, T_max=200, eta_min=0, last_epoch=-1)
+        optimizer=optimizer, T_max=options.epoch, eta_min=0, last_epoch=-1)
     warmUpScheduler = GradualWarmupScheduler(
-        optimizer=optimizer, multiplier=2.0, warm_epoch=20, after_scheduler=cosineScheduler)
+        optimizer=optimizer, multiplier=options.multiplier, warm_epoch=options.epoch // 10, after_scheduler=cosineScheduler)
     trainer = GaussianDiffusionTrainer(
         net_model, options.diff.beta_1, options.diff.beta_T, options.T).to(options.device)
     # start training
     for i in range(options.epoch):
         count = 0
-        step = int(len(train_data) / 100)
+        step = int(len(train_data) / 5)
         total_loss = 0
-        for image, text in train_data:
+        images = np.empty((options.batch_size)).tolist()
+        func_start()
+        for image, text in train_data :
             # train
             optimizer.zero_grad()
             img = Image.open(image)
             img = img.resize(options.img_size)
-            img = np.array(img)
-            H, W, C = img.shape
-            x_0 = torch.from_numpy(img).view(1, C, H, W).to(options.device).float()
-            x_0 = torch.clamp(x_0, 0, 1)
-            loss = trainer(x_0).sum()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                net_model.parameters(), 1.0)
-            optimizer.step()
-            total_loss = total_loss + loss.item()
+            images[count % options.batch_size] = img
             count = count + 1
+            if count % options.batch_size == 0:
+                x_0 = img_to_tensor(images)
+                loss = trainer(x_0).sum()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(
+                    net_model.parameters(), options.grad_clip)
+                optimizer.step()
+                total_loss = total_loss + loss.item()
             if count % step ==0:
                 logger.info("epoch %d , train loss: %.4f , progress: %d%%" %(i, total_loss/count, int(count * 100 /len(train_data))))
         warmUpScheduler.step()
-    save_model(net_model, "fuzzydiffusion")
+        epoch_cost = func_cost()
+        remaining_time = epoch_cost*(options.epoch - i - 1)
+        logger.info("epoch time: %s seconds, remaining time: %s" %(str(epoch_cost), str(datetime.timedelta(seconds=remaining_time))))
+    save_model(net_model, "diffusion")
     logger.remove(log_file)
 
 def eval():
-    # load model and evaluate
-    with torch.no_grad():
+    log_file = logger.add(options.base_path+"output/log/eval-"+str(datetime.date.today()) +'.log')
+    with torch.no_grad(): # aganist GPU memory up
+        # load model and evaluate
         model = UNet(T=options.T, ch=options.unet.channel, ch_mult=options.unet.channel_mult, attn=options.unet.attn,
-                     num_res_blocks=options.unet.num_res_blocks, dropout=0.)
-        load_model(model, "fuzzydiffusion")
+                        num_res_blocks=options.unet.num_res_blocks, dropout=0.1)
+        logger.info("[model setting] %s" %(setting_info()))
+        load_model(model, "diffusion")
         model.eval()
         sampler = GaussianDiffusionSampler(
             model, options.diff.beta_1, options.diff.beta_T, options.T).to(options.device)
-        # Sampled from standard normal distribution
-        noisyImage = torch.randn(
-            size=[options.batch_size, 3, options.img_width, options.img_hight], device=options.device)
-        saveNoisy = torch.clamp(noisyImage * 0.5 + 0.5, 0, 1)
-        save_image(saveNoisy, options.img_path+"noisy.jpg")
-        sampledImgs = sampler(noisyImage)
-        sampledImgs = sampledImgs * 0.5 + 0.5  # [0 ~ 1]
-        save_image(sampledImgs, options.img_path+"sampled.jpg")
+        epoch = 8
+        for i in tqdm(range(epoch),'sampling'):
+            # Sampled from standard normal distribution
+            noisyImage = torch.randn(
+                size=[64, 3, options.img_width, options.img_height], device=options.device)
+            saveNoisy = torch.clamp(noisyImage * 0.5 + 0.5, 0, 1)
+            save_image(saveNoisy, options.img_path+str(i)+"_noisy.jpg")
+            sampledImgs = sampler(noisyImage)
+            sampledImgs = sampledImgs * 0.5 + 0.5  # [0 ~ 1]
+            save_image(sampledImgs, options.img_path+str(i)+"_sampled.jpg")
+    logger.remove(log_file)
         
 if __name__ == '__main__':
-    # train()
+    train()
     eval()

@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from torch.nn import init
 from torch.nn import functional as F
+import numpy as np
 
 
 class Swish(nn.Module):
@@ -216,21 +217,25 @@ class UNet(nn.Module):
         temb = self.time_embedding(t)
         # Downsampling
         h = self.head(x)
-        hs = [h]
-        for layer in self.downblocks:
+        # hs = [h]
+        dlen = len(self.downblocks)
+        hs = np.empty((dlen+1)).tolist()
+        hs[0] = h
+        for i in range(dlen):
+            layer = self.downblocks[i]
             h = layer(h, temb)
-            hs.append(h)
+            hs[i+1] = h
         # Middle
         for layer in self.middleblocks:
             h = layer(h, temb)
         # Upsampling
+        offset = len(hs) - 1
         for layer in self.upblocks:
             if isinstance(layer, ResBlock):
-                h = torch.cat([h, hs.pop()], dim=1)
+                h = torch.cat([h, hs[offset]], dim=1)
+                offset = offset  - 1
             h = layer(h, temb)
         h = self.tail(h)
-
-        assert len(hs) == 0
         return h
 
 
@@ -271,7 +276,9 @@ class GaussianDiffusionTrainer(nn.Module):
         x_t = (
             extract(self.sqrt_alphas_bar, t, x_0.shape) * x_0 +
             extract(self.sqrt_one_minus_alphas_bar, t, x_0.shape) * noise)
-        loss = F.mse_loss(self.model(x_t, t), noise, reduction='none')
+        epsilon_theta = self.model(x_t, t)
+        epsilon = noise
+        loss = F.mse_loss(epsilon_theta, epsilon, reduction='none')
         return loss
 
 
