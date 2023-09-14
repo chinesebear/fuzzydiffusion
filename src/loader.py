@@ -1,7 +1,12 @@
 import os
+from abc import ABC, abstractmethod
+
 import numpy as np
+import torch
 from torchtext.data import get_tokenizer
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
+from torchvision import transforms
 from torchvision import datasets
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
@@ -253,27 +258,119 @@ def read_data(name):
 
 
 
-class CustomImageDataset(Dataset):
-    def __init__(self, annotations_file, img_dir, transform=None, target_transform=None):
-        self.img_labels = pd.read_csv(annotations_file)
-        self.img_dir = img_dir
+class BaseDataSet(Dataset,ABC):
+    def __init__(self, dataset_path, dataset_sub_path='', phase='train', transform=None, target_transform=None):
+        self.dataset_path = dataset_path
+        self.dataset = read_dataset(dataset_path, dataset_sub_path)
+        self.phase = phase # train validation test
+        self.data_len = 0
+        self.data_pairs = []
         self.transform = transform
         self.target_transform = target_transform
+        self.data_preload()
+    
+    @abstractmethod
+    def data_preload(self):
+        """
+        你需要在子类中实现该方法, 子类才允许被实例化
+        """
 
     def __len__(self):
-        return len(self.img_labels)
+        return self.data_len
 
     def __getitem__(self, idx):
-        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
-        image = read_image(img_path)
-        label = self.img_labels.iloc[idx, 1]
+        img,text = self.data_pairs[idx]
         if self.transform:
-            image = self.transform(image)
-        if self.target_transform:
-            label = self.target_transform(label)
-        return image, label
+            img = self.transform(img)
+        return img, text
 
+class CIFAR10(BaseDataSet):
+    def data_preload(self):
+        logger.info("%s data preload start" %(self.dataset_path))
+        if not self.phase in self.dataset:
+            logger.error("%s data not exist" %(self.phase))
+            return
+        self.data_len = self.dataset[self.phase].num_rows
+        data_pairs = np.empty([self.data_len], dtype=int).tolist()
+        data_iter = iter(self.dataset[self.phase])
+        for i in tqdm(range(self.data_len), "data preload"):
+            data = next(data_iter)
+            img = data['img']
+            text = data['label']
+            data_pairs[i] = [img, text]
+        self.data_pairs = data_pairs
+        logger.info("%s data preload done" %(self.dataset_path))
 
+class COCO(BaseDataSet):
+    def data_preload(self):
+        logger.info("%s data preload start" %(self.dataset_path))
+        if not self.phase in self.dataset:
+            logger.error("%s data not exist" %(self.phase))
+            return
+        self.data_len = self.dataset[self.phase].num_rows
+        data_pairs = np.empty([self.data_len], dtype=int).tolist()
+        data_iter = iter(self.dataset[self.phase])
+        for i in tqdm(range(self.data_len), "data preload"):
+            data = next(data_iter)
+            url = data['URL']
+            text = data['TEXT']
+            url_feilds = urlparse(url)
+            filename = os.path.basename(url_feilds.path)
+            local_path = options.base_path+"output/datasets/"+self.dataset_path+"/train/"
+            local_img = local_path+filename
+            if not os.path.exists(local_img):
+                download(url,local_path, bar=bar_blank)
+            img = Image.open(local_img)
+            if img.mode != 'RGB':
+                img = img.convert("RGB")
+            data_pairs[i] = [img, text]
+        self.data_pairs = data_pairs
+        logger.info("%s data preload done" %(self.dataset_path))
+
+class Flowers(BaseDataSet):
+    def data_preload(self):
+        logger.info("%s data preload start" %(self.dataset_path))
+        if not self.phase in self.dataset:
+            logger.error("%s data not exist" %(self.phase))
+            return
+        label_path = options.base_path+"doc/"
+        fd = open(label_path+"image_label.txt", "r")
+        labels = []
+        for line in fd.readlines():
+            line = line.replace('\r', '')
+            line = line.replace('\n', '')
+            line = line.replace('\'', '')
+            labels.append('a'+line + " flower")
+        fd.close()
+        self.data_len = self.dataset[self.phase].num_rows
+        data_pairs = np.empty([self.data_len], dtype=int).tolist()
+        data_iter = iter(self.dataset[self.phase])
+        for i in tqdm(range(self.data_len), "data preload"):
+            data = next(data_iter)
+            img = data['image']
+            text = labels[data['label']]
+            data_pairs[i] = [img, text]
+        self.data_pairs = data_pairs
+        logger.info("%s data preload done" %(self.dataset_path))
+
+class CUB200(BaseDataSet):
+    def data_preload(self):
+        logger.info("CUB200 data preload start")
+        if not self.phase in self.dataset:
+            logger.error("%s data not exist" %(self.phase))
+            return
+        dataset_path = "anjunhu/naively_captioned_CUB2002011_test"
+        dataset = [self.dataset, read_dataset(dataset_path, '')]
+        self.data_len = dataset[0]['train'].num_rows + dataset[1]['train'].num_rows
+        data_pairs = np.empty([self.data_len], dtype=int).tolist()
+        data_iter = chain(iter(dataset[0]['train']) , iter(dataset[1]['train']))
+        for i in tqdm(range(self.data_len),"data preload"):
+            data = next(data_iter)
+            img = data['image']
+            text = data['text']
+            data_pairs[i] = [img, text]
+        self.data_pairs = data_pairs
+        logger.info("CUB200 data preload done")
 
 if __name__ == '__main__':
     # read_coco()
@@ -281,4 +378,41 @@ if __name__ == '__main__':
     # read_pokemon()
     # read_imagereward()
     # read_cub200()
-    read_cifar10()
+    # read_cifar10()
+    # dataset = CIFAR10("cifar10",transform=transforms.Compose([
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #     ]))
+    # CIFAR10("cifar10", phase="validation")
+    # CIFAR10("cifar10", phase="test")
+    # train_data = DataLoader(
+    #     dataset, batch_size=options.batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
+    
+    dataset = COCO("ChristophSchuhmann/MS_COCO_2017_URL_TEXT",transform=transforms.Compose([
+            transforms.Resize((32,32)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]))
+    
+    # dataset = Flowers("nelorth/oxford-flowers",transform=transforms.Compose([
+    #         transforms.Resize((32,32)),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #     ]))
+    
+    # dataset = CUB200("anjunhu/naively_captioned_CUB2002011_train",transform=transforms.Compose([
+    #         transforms.Resize((32,32)),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #     ]))
+    
+    train_data = DataLoader(
+        dataset, batch_size=options.batch_size, shuffle=True, drop_last=True, pin_memory=True)
+    
+    for image,text in train_data:
+        image = image.to("cuda")
+        image = image.to('cpu')
