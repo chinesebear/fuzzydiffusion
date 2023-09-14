@@ -7,7 +7,6 @@ import torch.optim as optim
 from tqdm import tqdm
 from torchvision import transforms
 from torchvision.utils import save_image
-from torchvision.datasets import CIFAR10
 from torch.utils.data import DataLoader
 from loguru import logger
 from PIL import Image
@@ -16,7 +15,7 @@ import numpy as np
 from model import GaussianDiffusionSampler, GaussianDiffusionTrainer, UNet
 from scheduler import GradualWarmupScheduler
 from setting import options,setting_info
-from loader import read_data
+from loader import CIFAR10,Flowers
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
@@ -70,10 +69,9 @@ def img_to_tensor(images):
 def train():
     log_file = logger.add(options.base_path+"output/log/train-"+str(datetime.date.today()) +'.log')
     # dataset
-    # train_data,_,_ = read_data('flowers')
-    dataset = CIFAR10(
-        root=options.dataset_path+'CIFAR10', train=True, download=True,
-        transform=transforms.Compose([
+    dataset = Flowers("nelorth/oxford-flowers",transform=transforms.Compose([
+            transforms.RandomCrop((500,500)),
+            transforms.Resize(options.img_size),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -84,7 +82,7 @@ def train():
     net_model = UNet(T=options.T, ch=options.unet.channel, ch_mult=options.unet.channel_mult, attn=options.unet.attn,
                      num_res_blocks=options.unet.num_res_blocks, dropout=options.unet.dropout).to(options.device)
     logger.info("[model setting] %s" %(setting_info()))
-    load_model(net_model, "diffusion")
+    # load_model(net_model, "diffusion")
     optimizer = torch.optim.AdamW(
         net_model.parameters(), lr=options.learning_rate, weight_decay=1e-4)
     cosineScheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -98,7 +96,6 @@ def train():
         count = 0
         step = int(len(train_data) / 5)
         total_loss = 0
-        # images = np.empty((options.batch_size)).tolist()
         func_start()
         for images, text in train_data :
             # train

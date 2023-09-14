@@ -18,10 +18,10 @@ options.seed_id = 10
 options.epoch= 20 #200
 options.learning_rate = 1e-4
 options.T = 1000
-options.batch_size = 80
-options.img_width = 32
-options.img_height = 32
-options.img_size = (options.img_width,options.img_height)
+options.batch_size = 8 #80
+options.img_width = 128 #32
+options.img_height = 128 #32
+options.img_size = (options.img_height,options.img_width)
 options.multiplier = 2.0
 options.grad_clip = 1.0
 
