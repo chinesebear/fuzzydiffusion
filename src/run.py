@@ -7,6 +7,8 @@ import torch.optim as optim
 from tqdm import tqdm
 from torchvision import transforms
 from torchvision.utils import save_image
+from torchvision.datasets import CIFAR10
+from torch.utils.data import DataLoader
 from loguru import logger
 from PIL import Image
 import numpy as np
@@ -33,7 +35,7 @@ def func_cost():
     return int(delta_time)
 
 def save_model(model,file):
-    path = options.model_parameter_path+"-"+str(datetime.datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))+".pth"
+    path = options.model_parameter_path+file+"-"+str(datetime.datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))+".pth"
     torch.save(model.state_dict(), path)
     path = options.model_parameter_path+file+".pth"
     torch.save(model.state_dict(), path)
@@ -45,7 +47,7 @@ def load_model(model, file):
         model.load_state_dict(torch.load(path))
         logger.info("load %s model parameters done, %s." %(file, path))
     else:
-        logger.error("load %s model parameters fail, %s." %(file, path))
+        logger.warning("load %s model parameters fail, %s." %(file, path))
     
 def save_img(img, file):
     path = options.img_path+file+".jpg"
@@ -62,19 +64,27 @@ def img_to_tensor(images):
         imgs.append(img)
     imgs = np.array(imgs)
     x_0 = torch.from_numpy(imgs).to(options.device).float()
-    x_0 = torch.clamp(x_0, 0, 1)
+    x_0 = x_0 / 127.5 - 1.0  #[-1.0, 1.0]
     return x_0
 
 def train():
     log_file = logger.add(options.base_path+"output/log/train-"+str(datetime.date.today()) +'.log')
     # dataset
-    train_data,_,_ = read_data('flowers')
-
+    # train_data,_,_ = read_data('flowers')
+    dataset = CIFAR10(
+        root=options.dataset_path+'CIFAR10', train=True, download=True,
+        transform=transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]))
+    train_data = DataLoader(
+        dataset, batch_size=options.batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
     # model setup
     net_model = UNet(T=options.T, ch=options.unet.channel, ch_mult=options.unet.channel_mult, attn=options.unet.attn,
                      num_res_blocks=options.unet.num_res_blocks, dropout=options.unet.dropout).to(options.device)
     logger.info("[model setting] %s" %(setting_info()))
-    # load_model(net_model, "diffusion")
+    load_model(net_model, "diffusion")
     optimizer = torch.optim.AdamW(
         net_model.parameters(), lr=options.learning_rate, weight_decay=1e-4)
     cosineScheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -88,23 +98,19 @@ def train():
         count = 0
         step = int(len(train_data) / 5)
         total_loss = 0
-        images = np.empty((options.batch_size)).tolist()
+        # images = np.empty((options.batch_size)).tolist()
         func_start()
-        for image, text in train_data :
+        for images, text in train_data :
             # train
             optimizer.zero_grad()
-            img = Image.open(image)
-            img = img.resize(options.img_size)
-            images[count % options.batch_size] = img
+            x_0 = images.to(options.device)
+            loss = trainer(x_0).sum() / 1000.0
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                net_model.parameters(), options.grad_clip)
+            optimizer.step()
+            total_loss = total_loss + loss.item()
             count = count + 1
-            if count % options.batch_size == 0:
-                x_0 = img_to_tensor(images)
-                loss = trainer(x_0).sum()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(
-                    net_model.parameters(), options.grad_clip)
-                optimizer.step()
-                total_loss = total_loss + loss.item()
             if count % step ==0:
                 logger.info("epoch %d , train loss: %.4f , progress: %d%%" %(i, total_loss/count, int(count * 100 /len(train_data))))
         warmUpScheduler.step()
@@ -129,7 +135,7 @@ def eval():
         for i in tqdm(range(epoch),'sampling'):
             # Sampled from standard normal distribution
             noisyImage = torch.randn(
-                size=[64, 3, options.img_width, options.img_height], device=options.device)
+                size=[options.batch_size, 3, options.img_width, options.img_height], device=options.device)
             saveNoisy = torch.clamp(noisyImage * 0.5 + 0.5, 0, 1)
             save_image(saveNoisy, options.img_path+str(i)+"_noisy.jpg")
             sampledImgs = sampler(noisyImage)
