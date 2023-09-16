@@ -48,11 +48,13 @@ def load_model(model, file):
     else:
         logger.warning("load %s model parameters fail, %s." %(file, path))
     
-def save_img(img, file):
-    path = options.img_path+file+".jpg"
-    img = Image.fromarray(img)
-    img.save(path)
-    logger.info("save %s image done, %s." %(file, path))
+def save_img(img, filename):
+    path = options.img_path + str(datetime.datetime.now().strftime("%Y-%m-%d"))+"/"
+    if not os.path.exists(path):
+        os.makedirs(path)
+    path = path+str(datetime.datetime.now().strftime("%Y-%m-%d_%H_%M_%S"))+'-'+filename
+    save_image(img, path)
+    # logger.info("save %s image done, %s." %(filename, path))
 
 def img_to_tensor(images):
     imgs = []
@@ -82,7 +84,7 @@ def train():
     net_model = UNet(T=options.T, ch=options.unet.channel, ch_mult=options.unet.channel_mult, attn=options.unet.attn,
                      num_res_blocks=options.unet.num_res_blocks, dropout=options.unet.dropout).to(options.device)
     logger.info("[model setting] %s" %(setting_info()))
-    # load_model(net_model, "diffusion")
+    load_model(net_model, "diffusion")
     optimizer = torch.optim.AdamW(
         net_model.parameters(), lr=options.learning_rate, weight_decay=1e-4)
     cosineScheduler = optim.lr_scheduler.CosineAnnealingLR(
@@ -134,10 +136,10 @@ def eval():
             noisyImage = torch.randn(
                 size=[options.batch_size, 3, options.img_width, options.img_height], device=options.device)
             saveNoisy = torch.clamp(noisyImage * 0.5 + 0.5, 0, 1)
-            save_image(saveNoisy, options.img_path+str(i)+"_noisy.jpg")
+            save_img(saveNoisy, str(i)+"_noisy.jpg")
             sampledImgs = sampler(noisyImage)
             sampledImgs = sampledImgs * 0.5 + 0.5  # [0 ~ 1]
-            save_image(sampledImgs, options.img_path+str(i)+"_sampled.jpg")
+            save_img(sampledImgs, str(i)+"_sampled.jpg")
     logger.remove(log_file)
         
 if __name__ == '__main__':
