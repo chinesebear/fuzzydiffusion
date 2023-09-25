@@ -12,10 +12,10 @@ from loguru import logger
 from PIL import Image
 import numpy as np
 
-from model import GaussianDiffusionSampler, GaussianDiffusionTrainer, UNet
-from scheduler import GradualWarmupScheduler
+from fuzzydiffusion.src.model.model import GaussianDiffusionSampler, GaussianDiffusionTrainer, UNet
+from fuzzydiffusion.src.model.scheduler import GradualWarmupScheduler
 from setting import options,setting_info
-from loader import CIFAR10,Flowers
+from fuzzydiffusion.src.data.loader import CIFAR10,Flowers
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
