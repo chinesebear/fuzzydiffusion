@@ -1,4 +1,5 @@
 import numpy as np
+from loguru import logger
 
 
 class LambdaWarmUpCosineScheduler:
@@ -16,7 +17,7 @@ class LambdaWarmUpCosineScheduler:
 
     def schedule(self, n, **kwargs):
         if self.verbosity_interval > 0:
-            if n % self.verbosity_interval == 0: print(f"current step: {n}, recent lr-multiplier: {self.last_lr}")
+            if n % self.verbosity_interval == 0: logger.info(f"current step: {n}, recent lr-multiplier: {self.last_lr}")
         if n < self.lr_warm_up_steps:
             lr = (self.lr_max - self.lr_start) / self.lr_warm_up_steps * n + self.lr_start
             self.last_lr = lr
@@ -60,7 +61,7 @@ class LambdaWarmUpCosineScheduler2:
         cycle = self.find_in_interval(n)
         n = n - self.cum_cycles[cycle]
         if self.verbosity_interval > 0:
-            if n % self.verbosity_interval == 0: print(f"current step: {n}, recent lr-multiplier: {self.last_f}, "
+            if n % self.verbosity_interval == 0: logger.info(f"current step: {n}, recent lr-multiplier: {self.last_f}, "
                                                        f"current cycle {cycle}")
         if n < self.lr_warm_up_steps[cycle]:
             f = (self.f_max[cycle] - self.f_start[cycle]) / self.lr_warm_up_steps[cycle] * n + self.f_start[cycle]
@@ -85,7 +86,7 @@ class LambdaLinearScheduler(LambdaWarmUpCosineScheduler2):
         cycle = self.find_in_interval(n)
         n = n - self.cum_cycles[cycle]
         if self.verbosity_interval > 0:
-            if n % self.verbosity_interval == 0: print(f"current step: {n}, recent lr-multiplier: {self.last_f}, "
+            if n % self.verbosity_interval == 0: logger.info(f"current step: {n}, recent lr-multiplier: {self.last_f}, "
                                                        f"current cycle {cycle}")
 
         if n < self.lr_warm_up_steps[cycle]:

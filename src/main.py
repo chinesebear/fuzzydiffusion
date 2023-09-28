@@ -10,6 +10,7 @@ from omegaconf import OmegaConf
 from torch.utils.data import random_split, DataLoader, Dataset, Subset
 from functools import partial
 from PIL import Image
+from loguru import logger
 
 from pytorch_lightning import seed_everything
 from pytorch_lightning.trainer import Trainer
@@ -217,7 +218,7 @@ class DataModuleFromConfig(pl.LightningDataModule):
                           shuffle=shuffle)
 
     def _test_dataloader(self, shuffle=False):
-        is_iterable_dataset = isinstance(self.datasets['train'], Txt2ImgIterableBaseDataset)
+        is_iterable_dataset = isinstance(self.datasets['test'], Txt2ImgIterableBaseDataset)
         if is_iterable_dataset or self.use_worker_init_fn:
             init_fn = worker_init_fn
         else:
@@ -251,7 +252,7 @@ class SetupCallback(Callback):
 
     def on_keyboard_interrupt(self, trainer, pl_module):
         if trainer.global_rank == 0:
-            print("Summoning checkpoint.")
+            logger.info("Summoning checkpoint.")
             ckpt_path = os.path.join(self.ckptdir, "last.ckpt")
             trainer.save_checkpoint(ckpt_path)
 
@@ -265,13 +266,13 @@ class SetupCallback(Callback):
             if "callbacks" in self.lightning_config:
                 if 'metrics_over_trainsteps_checkpoint' in self.lightning_config['callbacks']:
                     os.makedirs(os.path.join(self.ckptdir, 'trainstep_checkpoints'), exist_ok=True)
-            print("Project config")
-            print(OmegaConf.to_yaml(self.config))
+            logger.info("Project config")
+            logger.info(OmegaConf.to_yaml(self.config))
             OmegaConf.save(self.config,
                            os.path.join(self.cfgdir, "{}-project.yaml".format(self.now)))
 
-            print("Lightning config")
-            print(OmegaConf.to_yaml(self.lightning_config))
+            logger.info("Lightning config")
+            logger.info(OmegaConf.to_yaml(self.lightning_config))
             OmegaConf.save(OmegaConf.create({"lightning": self.lightning_config}),
                            os.path.join(self.cfgdir, "{}-lightning.yaml".format(self.now)))
 
@@ -376,7 +377,7 @@ class ImageLogger(Callback):
             try:
                 self.log_steps.pop(0)
             except IndexError as e:
-                print(e)
+                logger.info(e)
                 pass
             return True
         return False
@@ -417,6 +418,8 @@ class CUDACallback(Callback):
 
 
 if __name__ == "__main__":
+    #-----------------logger start----------------------
+    log_file = logger.add(options.base_path+'output/log/fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
     # custom parser to specify config files, train, test and debug mode,
     # postfix, resume.
     # `--key value` arguments are interpreted as arguments to the trainer.
@@ -527,7 +530,7 @@ if __name__ == "__main__":
             cpu = True
         else:
             gpuinfo = trainer_config["gpus"]
-            print(f"Running on GPUs {gpuinfo}")
+            logger.info(f"Running on GPUs {gpuinfo}")
             cpu = False
         trainer_opt = argparse.Namespace(**trainer_config)
         lightning_config.trainer = trainer_config
@@ -577,7 +580,7 @@ if __name__ == "__main__":
             }
         }
         if hasattr(model, "monitor"):
-            print(f"Monitoring {model.monitor} as checkpoint metric.")
+            logger.info(f"Monitoring {model.monitor} as checkpoint metric.")
             default_modelckpt_cfg["params"]["monitor"] = model.monitor
             default_modelckpt_cfg["params"]["save_top_k"] = 3
 
@@ -586,7 +589,7 @@ if __name__ == "__main__":
         else:
             modelckpt_cfg =  OmegaConf.create()
         modelckpt_cfg = OmegaConf.merge(default_modelckpt_cfg, modelckpt_cfg)
-        print(f"Merged modelckpt-cfg: \n{modelckpt_cfg}")
+        logger.info(f"Merged modelckpt-cfg: \n{modelckpt_cfg}")
         if version.parse(pl.__version__) < version.parse('1.4.0'):
             trainer_kwargs["checkpoint_callback"] = instantiate_from_config(modelckpt_cfg)
 
@@ -632,7 +635,7 @@ if __name__ == "__main__":
             callbacks_cfg = OmegaConf.create()
 
         if 'metrics_over_trainsteps_checkpoint' in callbacks_cfg:
-            print(
+            logger.info(
                 'Caution: Saving checkpoints every n train steps without deleting. This might require some free space.')
             default_metrics_over_trainsteps_ckpt_dict = {
                 'metrics_over_trainsteps_checkpoint':
@@ -667,9 +670,9 @@ if __name__ == "__main__":
         # lightning still takes care of proper multiprocessing though
         data.prepare_data()
         data.setup()
-        print("#### Data #####")
+        logger.info("#### Data #####")
         for k in data.datasets:
-            print(f"{k}, {data.datasets[k].__class__.__name__}, {len(data.datasets[k])}")
+            logger.info(f"{k}, {data.datasets[k].__class__.__name__}, {len(data.datasets[k])}")
 
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
@@ -681,24 +684,24 @@ if __name__ == "__main__":
             accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches
         else:
             accumulate_grad_batches = 1
-        print(f"accumulate_grad_batches = {accumulate_grad_batches}")
+        logger.info(f"accumulate_grad_batches = {accumulate_grad_batches}")
         lightning_config.trainer.accumulate_grad_batches = accumulate_grad_batches
         if opt.scale_lr:
             model.learning_rate = accumulate_grad_batches * ngpu * bs * base_lr
-            print(
+            logger.info(
                 "Setting learning rate to {:.2e} = {} (accumulate_grad_batches) * {} (num_gpus) * {} (batchsize) * {:.2e} (base_lr)".format(
                     model.learning_rate, accumulate_grad_batches, ngpu, bs, base_lr))
         else:
             model.learning_rate = base_lr
-            print("++++ NOT USING LR SCALING ++++")
-            print(f"Setting learning rate to {model.learning_rate:.2e}")
+            logger.info("++++ NOT USING LR SCALING ++++")
+            logger.info(f"Setting learning rate to {model.learning_rate:.2e}")
 
 
         # allow checkpointing via USR1
         def melk(*args, **kwargs):
             # run all checkpoint hooks
             if trainer.global_rank == 0:
-                print("Summoning checkpoint.")
+                logger.info("Summoning checkpoint.")
                 ckpt_path = os.path.join(ckptdir, "last.ckpt")
                 trainer.save_checkpoint(ckpt_path)
 
@@ -739,4 +742,7 @@ if __name__ == "__main__":
             os.makedirs(os.path.split(dst)[0], exist_ok=True)
             os.rename(logdir, dst)
         if trainer.global_rank == 0:
-            print(trainer.profiler.summary())
+            logger.info(trainer.profiler.summary())
+            
+    #-----------------logger end----------------------
+    logger.remove(log_file)

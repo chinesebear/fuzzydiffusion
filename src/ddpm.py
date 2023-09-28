@@ -17,6 +17,7 @@ from functools import partial
 from tqdm import tqdm
 from torchvision.utils import make_grid
 from pytorch_lightning.utilities.distributed import rank_zero_only
+from loguru import logger
 
 from util import log_txt_as_img, exists, default, ismap, isimage, mean_flat, count_params, instantiate_from_config
 from ema import LitEma
@@ -75,7 +76,7 @@ class DDPM(pl.LightningModule):
         super().__init__()
         assert parameterization in ["eps", "x0"], 'currently only supporting "eps" and "x0"'
         self.parameterization = parameterization
-        print(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
+        logger.info(f"{self.__class__.__name__}: Running in {self.parameterization}-prediction mode")
         self.cond_stage_model = None
         self.clip_denoised = clip_denoised
         self.log_every_t = log_every_t
@@ -88,7 +89,7 @@ class DDPM(pl.LightningModule):
         self.use_ema = use_ema
         if self.use_ema:
             self.model_ema = LitEma(self.model)
-            print(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
+            logger.info(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
 
         self.use_scheduler = scheduler_config is not None
         if self.use_scheduler:
@@ -174,14 +175,14 @@ class DDPM(pl.LightningModule):
             self.model_ema.store(self.model.parameters())
             self.model_ema.copy_to(self.model)
             if context is not None:
-                print(f"{context}: Switched to EMA weights")
+                logger.info(f"{context}: Switched to EMA weights")
         try:
             yield None
         finally:
             if self.use_ema:
                 self.model_ema.restore(self.model.parameters())
                 if context is not None:
-                    print(f"{context}: Restored training weights")
+                    logger.info(f"{context}: Restored training weights")
 
     def init_from_ckpt(self, path, ignore_keys=list(), only_model=False):
         sd = torch.load(path, map_location="cpu")
@@ -191,15 +192,15 @@ class DDPM(pl.LightningModule):
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
+                    logger.info("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False) if not only_model else self.model.load_state_dict(
             sd, strict=False)
-        print(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
+        logger.info(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
         if len(missing) > 0:
-            print(f"Missing Keys: {missing}")
+            logger.info(f"Missing Keys: {missing}")
         if len(unexpected) > 0:
-            print(f"Unexpected Keys: {unexpected}")
+            logger.info(f"Unexpected Keys: {unexpected}")
 
     def q_mean_variance(self, x_start, t):
         """
@@ -342,20 +343,29 @@ class DDPM(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         loss, loss_dict = self.shared_step(batch)
 
-        self.log_dict(loss_dict, prog_bar=True,
+        self.log_dict(loss_dict, prog_bar=False,
                       logger=True, on_step=True, on_epoch=True)
 
         self.log("global_step", self.global_step,
-                 prog_bar=True, logger=True, on_step=True, on_epoch=False)
+                 prog_bar=False, logger=True, on_step=True, on_epoch=False)
 
         if self.use_scheduler:
             lr = self.optimizers().param_groups[0]['lr']
-            self.log('lr_abs', lr, prog_bar=True, logger=True, on_step=True, on_epoch=False)
+            self.log('lr_abs', lr, prog_bar=False, logger=True, on_step=True, on_epoch=False)
 
         return loss
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
+        _, loss_dict_no_ema = self.shared_step(batch)
+        with self.ema_scope():
+            _, loss_dict_ema = self.shared_step(batch)
+            loss_dict_ema = {key + '_ema': loss_dict_ema[key] for key in loss_dict_ema}
+        self.log_dict(loss_dict_no_ema, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+        self.log_dict(loss_dict_ema, prog_bar=False, logger=True, on_step=False, on_epoch=True)
+    
+    @torch.no_grad()
+    def test_step(self, batch, batch_idx):
         _, loss_dict_no_ema = self.shared_step(batch)
         with self.ema_scope():
             _, loss_dict_ema = self.shared_step(batch)
@@ -480,15 +490,15 @@ class LatentDiffusion(DDPM):
         if self.scale_by_std and self.current_epoch == 0 and self.global_step == 0 and batch_idx == 0 and not self.restarted_from_ckpt:
             assert self.scale_factor == 1., 'rather not use custom rescaling and std-rescaling simultaneously'
             # set rescale weight to 1./std of encodings
-            print("### USING STD-RESCALING ###")
+            logger.info("### USING STD-RESCALING ###")
             x = super().get_input(batch, self.first_stage_key)
             x = x.to(self.device)
             encoder_posterior = self.encode_first_stage(x)
             z = self.get_first_stage_encoding(encoder_posterior).detach()
             del self.scale_factor
             self.register_buffer('scale_factor', 1. / z.flatten().std())
-            print(f"setting self.scale_factor to {self.scale_factor}")
-            print("### USING STD-RESCALING ###")
+            logger.info(f"setting self.scale_factor to {self.scale_factor}")
+            logger.info("### USING STD-RESCALING ###")
 
     def register_schedule(self,
                           given_betas=None, beta_schedule="linear", timesteps=1000,
@@ -509,10 +519,10 @@ class LatentDiffusion(DDPM):
     def instantiate_cond_stage(self, config):
         if not self.cond_stage_trainable:
             if config == "__is_first_stage__":
-                print("Using first stage also as cond stage.")
+                logger.info("Using first stage also as cond stage.")
                 self.cond_stage_model = self.first_stage_model
             elif config == "__is_unconditional__":
-                print(f"Training {self.__class__.__name__} as an unconditional model.")
+                logger.info(f"Training {self.__class__.__name__} as an unconditional model.")
                 self.cond_stage_model = None
                 # self.be_unconditional = True
             else:
@@ -720,11 +730,11 @@ class LatentDiffusion(DDPM):
                 bs, nc, h, w = z.shape
                 if ks[0] > h or ks[1] > w:
                     ks = (min(ks[0], h), min(ks[1], w))
-                    print("reducing Kernel")
+                    logger.info("reducing Kernel")
 
                 if stride[0] > h or stride[1] > w:
                     stride = (min(stride[0], h), min(stride[1], w))
-                    print("reducing stride")
+                    logger.info("reducing stride")
 
                 fold, unfold, normalization, weighting = self.get_fold_unfold(z, ks, stride, uf=uf)
 
@@ -780,11 +790,11 @@ class LatentDiffusion(DDPM):
                 bs, nc, h, w = z.shape
                 if ks[0] > h or ks[1] > w:
                     ks = (min(ks[0], h), min(ks[1], w))
-                    print("reducing Kernel")
+                    logger.info("reducing Kernel")
 
                 if stride[0] > h or stride[1] > w:
                     stride = (min(stride[0], h), min(stride[1], w))
-                    print("reducing stride")
+                    logger.info("reducing stride")
 
                 fold, unfold, normalization, weighting = self.get_fold_unfold(z, ks, stride, uf=uf)
 
@@ -833,11 +843,11 @@ class LatentDiffusion(DDPM):
                 bs, nc, h, w = x.shape
                 if ks[0] > h or ks[1] > w:
                     ks = (min(ks[0], h), min(ks[1], w))
-                    print("reducing Kernel")
+                    logger.info("reducing Kernel")
 
                 if stride[0] > h or stride[1] > w:
                     stride = (min(stride[0], h), min(stride[1], w))
-                    print("reducing stride")
+                    logger.info("reducing stride")
 
                 fold, unfold, normalization, weighting = self.get_fold_unfold(x, ks, stride, df=df)
                 z = unfold(x)  # (bn, nc * prod(**ks), L)
@@ -952,19 +962,19 @@ class LatentDiffusion(DDPM):
                 # tokenize crop coordinates for the bounding boxes of the respective patches
                 patch_limits_tknzd = [torch.LongTensor(self.bbox_tokenizer._crop_encoder(bbox))[None].to(self.device)
                                       for bbox in patch_limits]  # list of length l with tensors of shape (1, 2)
-                print(patch_limits_tknzd[0].shape)
+                logger.info(patch_limits_tknzd[0].shape)
                 # cut tknzd crop position from conditioning
                 assert isinstance(cond, dict), 'cond must be dict to be fed into model'
                 cut_cond = cond['c_crossattn'][0][..., :-2].to(self.device)
-                print(cut_cond.shape)
+                logger.info(cut_cond.shape)
 
                 adapted_cond = torch.stack([torch.cat([cut_cond, p], dim=1) for p in patch_limits_tknzd])
                 adapted_cond = rearrange(adapted_cond, 'l b n -> (l b) n')
-                print(adapted_cond.shape)
+                logger.info(adapted_cond.shape)
                 adapted_cond = self.get_learned_conditioning(adapted_cond)
-                print(adapted_cond.shape)
+                logger.info(adapted_cond.shape)
                 adapted_cond = rearrange(adapted_cond, '(l b) n d -> l b n d', l=z.shape[-1])
-                print(adapted_cond.shape)
+                logger.info(adapted_cond.shape)
 
                 cond_list = [{'c_crossattn': [e]} for e in adapted_cond]
 
@@ -1362,17 +1372,17 @@ class LatentDiffusion(DDPM):
         lr = self.learning_rate
         params = list(self.model.parameters())
         if self.cond_stage_trainable:
-            print(f"{self.__class__.__name__}: Also optimizing conditioner params!")
+            logger.info(f"{self.__class__.__name__}: Also optimizing conditioner params!")
             params = params + list(self.cond_stage_model.parameters())
         if self.learn_logvar:
-            print('Diffusion model optimizing logvar')
+            logger.info('Diffusion model optimizing logvar')
             params.append(self.logvar)
         opt = torch.optim.AdamW(params, lr=lr)
         if self.use_scheduler:
             assert 'target' in self.scheduler_config
             scheduler = instantiate_from_config(self.scheduler_config)
 
-            print("Setting up LambdaLR scheduler...")
+            logger.info("Setting up LambdaLR scheduler...")
             scheduler = [
                 {
                     'scheduler': LambdaLR(opt, lr_lambda=scheduler.schedule),

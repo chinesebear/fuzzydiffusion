@@ -4,6 +4,7 @@ from functools import partial
 import clip
 from einops import rearrange, repeat
 import kornia
+from loguru import logger
 
 
 from x_transformer import Encoder, TransformerWrapper  # TODO: can we directly rely on lucidrains code and simply add this as a reuirement? --> test
@@ -119,7 +120,7 @@ class SpatialRescaler(nn.Module):
         self.interpolator = partial(torch.nn.functional.interpolate, mode=method)
         self.remap_output = out_channels is not None
         if self.remap_output:
-            print(f'Spatial Rescaler mapping from {in_channels} to {out_channels} channels after resizing.')
+            logger.info(f'Spatial Rescaler mapping from {in_channels} to {out_channels} channels after resizing.')
             self.channel_mapper = nn.Conv2d(in_channels,out_channels,1,bias=bias)
 
     def forward(self,x):

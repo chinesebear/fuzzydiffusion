@@ -2,6 +2,7 @@ import torch
 import pytorch_lightning as pl
 import torch.nn.functional as F
 from contextlib import contextmanager
+from loguru import logger
 
 from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 
@@ -9,6 +10,7 @@ from diffusion import Encoder, Decoder
 from distributions import DiagonalGaussianDistribution
 
 from util import instantiate_from_config
+from ema import LitEma
 
 
 class VQModel(pl.LightningModule):
@@ -48,12 +50,12 @@ class VQModel(pl.LightningModule):
             self.monitor = monitor
         self.batch_resize_range = batch_resize_range
         if self.batch_resize_range is not None:
-            print(f"{self.__class__.__name__}: Using per-batch resizing in range {batch_resize_range}.")
+            logger.info(f"{self.__class__.__name__}: Using per-batch resizing in range {batch_resize_range}.")
 
         self.use_ema = use_ema
         if self.use_ema:
             self.model_ema = LitEma(self)
-            print(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
+            logger.info(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
 
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
@@ -66,14 +68,14 @@ class VQModel(pl.LightningModule):
             self.model_ema.store(self.parameters())
             self.model_ema.copy_to(self)
             if context is not None:
-                print(f"{context}: Switched to EMA weights")
+                logger.info(f"{context}: Switched to EMA weights")
         try:
             yield None
         finally:
             if self.use_ema:
                 self.model_ema.restore(self.parameters())
                 if context is not None:
-                    print(f"{context}: Restored training weights")
+                    logger.info(f"{context}: Restored training weights")
 
     def init_from_ckpt(self, path, ignore_keys=list()):
         sd = torch.load(path, map_location="cpu")["state_dict"]
@@ -81,13 +83,13 @@ class VQModel(pl.LightningModule):
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
+                    logger.info("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         missing, unexpected = self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
+        logger.info(f"Restored from {path} with {len(missing)} missing and {len(unexpected)} unexpected keys")
         if len(missing) > 0:
-            print(f"Missing Keys: {missing}")
-            print(f"Unexpected Keys: {unexpected}")
+            logger.info(f"Missing Keys: {missing}")
+            logger.info(f"Unexpected Keys: {unexpected}")
 
     def on_train_batch_end(self, *args, **kwargs):
         if self.use_ema:
@@ -197,8 +199,8 @@ class VQModel(pl.LightningModule):
     def configure_optimizers(self):
         lr_d = self.learning_rate
         lr_g = self.lr_g_factor*self.learning_rate
-        print("lr_d", lr_d)
-        print("lr_g", lr_g)
+        logger.info("lr_d", lr_d)
+        logger.info("lr_g", lr_g)
         opt_ae = torch.optim.Adam(list(self.encoder.parameters())+
                                   list(self.decoder.parameters())+
                                   list(self.quantize.parameters())+
@@ -211,7 +213,7 @@ class VQModel(pl.LightningModule):
         if self.scheduler_config is not None:
             scheduler = instantiate_from_config(self.scheduler_config)
 
-            print("Setting up LambdaLR scheduler...")
+            logger.info("Setting up LambdaLR scheduler...")
             scheduler = [
                 {
                     'scheduler': LambdaLR(opt_ae, lr_lambda=scheduler.schedule),
@@ -316,10 +318,10 @@ class AutoencoderKL(pl.LightningModule):
         for k in keys:
             for ik in ignore_keys:
                 if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
+                    logger.info("Deleting key {} from state_dict.".format(k))
                     del sd[k]
         self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path}")
+        logger.info(f"Restored from {path}")
 
     def encode(self, x):
         h = self.encoder(x)

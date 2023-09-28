@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from einops import repeat
+from loguru import logger
 
 from taming.modules.discriminator.model import NLayerDiscriminator, weights_init
 from taming.modules.losses.lpips import LPIPS
@@ -53,7 +54,7 @@ class VQLPIPSWithDiscriminator(nn.Module):
         self.codebook_weight = codebook_weight
         self.pixel_weight = pixelloss_weight
         if perceptual_loss == "lpips":
-            print(f"{self.__class__.__name__}: Running with LPIPS.")
+            logger.info(f"{self.__class__.__name__}: Running with LPIPS.")
             self.perceptual_loss = LPIPS().eval()
         else:
             raise ValueError(f"Unknown perceptual loss: >> {perceptual_loss} <<")
@@ -76,7 +77,7 @@ class VQLPIPSWithDiscriminator(nn.Module):
             self.disc_loss = vanilla_d_loss
         else:
             raise ValueError(f"Unknown GAN loss '{disc_loss}'.")
-        print(f"VQLPIPSWithDiscriminator running with {disc_loss} loss.")
+        logger.info(f"VQLPIPSWithDiscriminator running with {disc_loss} loss.")
         self.disc_factor = disc_factor
         self.discriminator_weight = disc_weight
         self.disc_conditional = disc_conditional

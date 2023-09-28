@@ -6,6 +6,7 @@ import torch
 import cv2
 from torchvision.utils import make_grid
 from datetime import datetime
+from loguru import logger
 #import matplotlib.pyplot as plt   # TODO: check with Dominik, also bsrgan.py vs bsrgan_light.py
 
 
@@ -98,8 +99,8 @@ def patches_from_image(img, p_size=512, p_overlap=64, p_max=800):
         h1 = list(np.arange(0, h-p_size, p_size-p_overlap, dtype=np.int))
         w1.append(w-p_size)
         h1.append(h-p_size)
-#        print(w1)
-#        print(h1)
+#        logger.info(w1)
+#        logger.info(h1)
         for i in w1:
             for j in h1:
                 patches.append(img[i:i+p_size, j:j+p_size,:])
@@ -166,7 +167,7 @@ def mkdirs(paths):
 def mkdir_and_rename(path):
     if os.path.exists(path):
         new_name = path + '_archived_' + get_timestamp()
-        print('Path already exists. Rename it to [{:s}]'.format(new_name))
+        logger.info('Path already exists. Rename it to [{:s}]'.format(new_name))
         os.rename(path, new_name)
     os.makedirs(path)
 
@@ -910,7 +911,7 @@ def imresize_np(img, scale, antialiasing=True):
 
 
 if __name__ == '__main__':
-    print('---')
+    logger.info('---')
 #    img = imread_uint('test.bmp', 3)
 #    img = uint2single(img)
 #    img_bicubic = imresize_np(img, 1/4)

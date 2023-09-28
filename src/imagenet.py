@@ -9,6 +9,7 @@ from functools import partial
 from PIL import Image
 from tqdm import tqdm
 from torch.utils.data import Dataset, Subset
+from loguru import logger
 
 import taming.data.utils as tdu
 from taming.data.imagenet import str_to_indices, give_synsets_from_indices, download, retrieve
@@ -95,7 +96,7 @@ class ImageNetBase(Dataset):
             self.relpaths = f.read().splitlines()
             l1 = len(self.relpaths)
             self.relpaths = self._filter_relpaths(self.relpaths)
-            print("Removed {} files from filelist during filtering.".format(l1 - len(self.relpaths)))
+            logger.info("Removed {} files from filelist during filtering.".format(l1 - len(self.relpaths)))
 
         self.synsets = [p.split("/")[0] for p in self.relpaths]
         self.abspaths = [os.path.join(self.datadir, p) for p in self.relpaths]
@@ -161,7 +162,7 @@ class ImageNetTrain(ImageNetBase):
                                     default=True)
         if not tdu.is_prepared(self.root):
             # prep
-            print("Preparing dataset {} in {}".format(self.NAME, self.root))
+            logger.info("Preparing dataset {} in {}".format(self.NAME, self.root))
 
             datadir = self.datadir
             if not os.path.exists(datadir):
@@ -171,12 +172,12 @@ class ImageNetTrain(ImageNetBase):
                     atpath = at.get(self.AT_HASH, datastore=self.root)
                     assert atpath == path
 
-                print("Extracting {} to {}".format(path, datadir))
+                logger.info("Extracting {} to {}".format(path, datadir))
                 os.makedirs(datadir, exist_ok=True)
                 with tarfile.open(path, "r:") as tar:
                     tar.extractall(path=datadir)
 
-                print("Extracting sub-tars.")
+                logger.info("Extracting sub-tars.")
                 subpaths = sorted(glob.glob(os.path.join(datadir, "*.tar")))
                 for subpath in tqdm(subpaths):
                     subdir = subpath[:-len(".tar")]
@@ -226,7 +227,7 @@ class ImageNetValidation(ImageNetBase):
                                     default=False)
         if not tdu.is_prepared(self.root):
             # prep
-            print("Preparing dataset {} in {}".format(self.NAME, self.root))
+            logger.info("Preparing dataset {} in {}".format(self.NAME, self.root))
 
             datadir = self.datadir
             if not os.path.exists(datadir):
@@ -236,7 +237,7 @@ class ImageNetValidation(ImageNetBase):
                     atpath = at.get(self.AT_HASH, datastore=self.root)
                     assert atpath == path
 
-                print("Extracting {} to {}".format(path, datadir))
+                logger.info("Extracting {} to {}".format(path, datadir))
                 os.makedirs(datadir, exist_ok=True)
                 with tarfile.open(path, "r:") as tar:
                     tar.extractall(path=datadir)
@@ -249,7 +250,7 @@ class ImageNetValidation(ImageNetBase):
                     synset_dict = f.read().splitlines()
                     synset_dict = dict(line.split() for line in synset_dict)
 
-                print("Reorganizing into synset folders")
+                logger.info("Reorganizing into synset folders")
                 synsets = np.unique(list(synset_dict.values()))
                 for s in synsets:
                     os.makedirs(os.path.join(datadir, s), exist_ok=True)

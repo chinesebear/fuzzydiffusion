@@ -19,6 +19,7 @@ import importlib
 from collections import abc
 from einops import rearrange
 from functools import partial
+from loguru import logger
 
 import multiprocessing as mp
 from threading import Thread
@@ -116,7 +117,7 @@ def make_ddim_timesteps(ddim_discr_method, num_ddim_timesteps, num_ddpm_timestep
     # add one to get the final alpha values right (the ones from first scale to data during sampling)
     steps_out = ddim_timesteps + 1
     if verbose:
-        print(f'Selected timesteps for ddim sampler: {steps_out}')
+        logger.info(f'Selected timesteps for ddim sampler: {steps_out}')
     return steps_out
 
 
@@ -128,8 +129,8 @@ def make_ddim_sampling_parameters(alphacums, ddim_timesteps, eta, verbose=True):
     # according the the formula provided in https://arxiv.org/abs/2010.02502
     sigmas = eta * np.sqrt((1 - alphas_prev) / (1 - alphas) * (1 - alphas / alphas_prev))
     if verbose:
-        print(f'Selected alphas for ddim sampler: a_t: {alphas}; a_(t-1): {alphas_prev}')
-        print(f'For the chosen value of eta, which is {eta}, '
+        logger.info(f'Selected alphas for ddim sampler: a_t: {alphas}; a_(t-1): {alphas_prev}')
+        logger.info(f'For the chosen value of eta, which is {eta}, '
               f'this results in the following sigma_t schedule for ddim sampler {sigmas}')
     return sigmas, alphas, alphas_prev
 
@@ -342,7 +343,7 @@ def log_txt_as_img(wh, xc, size=10):
         try:
             draw.text((0, 0), lines, fill="black", font=font)
         except UnicodeEncodeError:
-            print("Cant encode string for logging. Skipping.")
+            logger.info("Cant encode string for logging. Skipping.")
 
         txt = np.array(txt).transpose(2, 0, 1) / 127.5 - 1.0
         txts.append(txt)
@@ -384,7 +385,7 @@ def mean_flat(tensor):
 def count_params(model, verbose=False):
     total_params = sum(p.numel() for p in model.parameters())
     if verbose:
-        print(f"{model.__class__.__name__} has {total_params * 1.e-6:.2f} M params.")
+        logger.info(f"{model.__class__.__name__} has {total_params * 1.e-6:.2f} M params.")
     return total_params
 
 
@@ -430,7 +431,7 @@ def parallel_data_prefetch(
         raise ValueError("list expected but function got ndarray.")
     elif isinstance(data, abc.Iterable):
         if isinstance(data, dict):
-            print(
+            logger.info(
                 f'WARNING:"data" argument passed to parallel_data_prefetch is a dict: Using only its values and disregarding keys.'
             )
             data = list(data.values())
@@ -473,7 +474,7 @@ def parallel_data_prefetch(
         processes += [p]
 
     # start processes
-    print(f"Start prefetching...")
+    logger.info(f"Start prefetching...")
     import time
 
     start = time.time()
@@ -492,7 +493,7 @@ def parallel_data_prefetch(
                 gather_res[res[0]] = res[1]
 
     except Exception as e:
-        print("Exception: ", e)
+        logger.info("Exception: ", e)
         for p in processes:
             p.terminate()
 
@@ -500,7 +501,7 @@ def parallel_data_prefetch(
     finally:
         for p in processes:
             p.join()
-        print(f"Prefetching complete. [{time.time() - start} sec.]")
+        logger.info(f"Prefetching complete. [{time.time() - start} sec.]")
 
     if target_data_type == 'ndarray':
         if not isinstance(gather_res[0], np.ndarray):
@@ -556,7 +557,7 @@ def make_ddim_timesteps(ddim_discr_method, num_ddim_timesteps, num_ddpm_timestep
     # add one to get the final alpha values right (the ones from first scale to data during sampling)
     steps_out = ddim_timesteps + 1
     if verbose:
-        print(f'Selected timesteps for ddim sampler: {steps_out}')
+        logger.info(f'Selected timesteps for ddim sampler: {steps_out}')
     return steps_out
 
 
@@ -568,8 +569,8 @@ def make_ddim_sampling_parameters(alphacums, ddim_timesteps, eta, verbose=True):
     # according the the formula provided in https://arxiv.org/abs/2010.02502
     sigmas = eta * np.sqrt((1 - alphas_prev) / (1 - alphas) * (1 - alphas / alphas_prev))
     if verbose:
-        print(f'Selected alphas for ddim sampler: a_t: {alphas}; a_(t-1): {alphas_prev}')
-        print(f'For the chosen value of eta, which is {eta}, '
+        logger.info(f'Selected alphas for ddim sampler: a_t: {alphas}; a_(t-1): {alphas_prev}')
+        logger.info(f'For the chosen value of eta, which is {eta}, '
               f'this results in the following sigma_t schedule for ddim sampler {sigmas}')
     return sigmas, alphas, alphas_prev
 

@@ -71,6 +71,11 @@ class LSUNChurchesValidation(LSUNBase):
         super().__init__(txt_file=options.base_path + "output/datasets/lsun/church_outdoor_val.txt", data_root=options.base_path + "output/datasets/lsun/churches",
                          flip_p=flip_p, **kwargs)
 
+class LSUNChurchesTest(LSUNBase):
+    def __init__(self, flip_p=0., **kwargs):
+        super().__init__(txt_file=options.base_path + "output/datasets/lsun/church_outdoor_val.txt", data_root=options.base_path + "output/datasets/lsun/churches",
+                         flip_p=flip_p, **kwargs)
+
 
 class LSUNBedroomsTrain(LSUNBase):
     def __init__(self, **kwargs):
@@ -82,6 +87,10 @@ class LSUNBedroomsValidation(LSUNBase):
         super().__init__(txt_file=options.base_path + "output/datasets/lsun/bedrooms_val.txt", data_root=options.base_path + "output/datasets/lsun/bedrooms",
                          flip_p=flip_p, **kwargs)
 
+class LSUNBedroomsTest(LSUNBase):
+    def __init__(self, flip_p=0.0, **kwargs):
+        super().__init__(txt_file=options.base_path + "output/datasets/lsun/bedrooms_val.txt", data_root=options.base_path + "output/datasets/lsun/bedrooms",
+                         flip_p=flip_p, **kwargs)
 
 class LSUNCatsTrain(LSUNBase):
     def __init__(self, **kwargs):
@@ -89,6 +98,11 @@ class LSUNCatsTrain(LSUNBase):
 
 
 class LSUNCatsValidation(LSUNBase):
+    def __init__(self, flip_p=0., **kwargs):
+        super().__init__(txt_file=options.base_path + "output/datasets/lsun/cat_val.txt", data_root=options.base_path + "output/datasets/lsun/cats",
+                         flip_p=flip_p, **kwargs)
+
+class LSUNCatsTest(LSUNBase):
     def __init__(self, flip_p=0., **kwargs):
         super().__init__(txt_file=options.base_path + "output/datasets/lsun/cat_val.txt", data_root=options.base_path + "output/datasets/lsun/cats",
                          flip_p=flip_p, **kwargs)

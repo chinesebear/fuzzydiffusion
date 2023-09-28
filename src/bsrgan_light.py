@@ -11,6 +11,7 @@ import scipy.stats as ss
 from scipy.interpolate import interp2d
 from scipy.linalg import orth
 import albumentations
+from loguru import logger
 
 import utils_image as util
 
@@ -624,23 +625,23 @@ def degradation_bsrgan_variant(image, sf=4, isp_model=None):
 
 
 if __name__ == '__main__':
-    print("hey")
+    logger.info("hey")
     img = util.imread_uint('utils/test.png', 3)
     img = img[:448, :448]
     h = img.shape[0] // 4
-    print("resizing to", h)
+    logger.info("resizing to", h)
     sf = 4
     deg_fn = partial(degradation_bsrgan_variant, sf=sf)
     for i in range(20):
-        print(i)
+        logger.info(i)
         img_hq = img
         img_lq = deg_fn(img)["image"]
         img_hq, img_lq = util.uint2single(img_hq), util.uint2single(img_lq)
-        print(img_lq)
+        logger.info(img_lq)
         img_lq_bicubic = albumentations.SmallestMaxSize(max_size=h, interpolation=cv2.INTER_CUBIC)(image=img_hq)["image"]
-        print(img_lq.shape)
-        print("bicubic", img_lq_bicubic.shape)
-        print(img_hq.shape)
+        logger.info(img_lq.shape)
+        logger.info("bicubic", img_lq_bicubic.shape)
+        logger.info(img_hq.shape)
         lq_nearest = cv2.resize(util.single2uint(img_lq), (int(sf * img_lq.shape[1]), int(sf * img_lq.shape[0])),
                                 interpolation=0)
         lq_bicubic_nearest = cv2.resize(util.single2uint(img_lq_bicubic),

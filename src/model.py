@@ -4,7 +4,7 @@ from torch import nn
 from torch.nn import init
 from torch.nn import functional as F
 import numpy as np
-
+from loguru import logger
 
 class Swish(nn.Module):
     def forward(self, x):
@@ -322,7 +322,7 @@ class GaussianDiffusionSampler(nn.Module):
         """
         x_t = x_T
         for time_step in reversed(range(self.T)):
-            # print(time_step)
+            # logger.info(time_step)
             t = x_t.new_ones([x_T.shape[0], ], dtype=torch.long) * time_step
             mean, var= self.p_mean_variance(x_t=x_t, t=t)
             # no noise when t == 0
@@ -343,5 +343,5 @@ if __name__ == '__main__':
     x = torch.randn(batch_size, 3, 32, 32)
     t = torch.randint(1000, (batch_size, ))
     y = model(x, t)
-    print(y.shape)
+    logger.info(y.shape)
 

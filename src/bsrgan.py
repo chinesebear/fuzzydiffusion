@@ -22,6 +22,7 @@ import scipy.stats as ss
 from scipy.interpolate import interp2d
 from scipy.linalg import orth
 import albumentations
+from loguru import logger
 
 import utils_image as util
 
@@ -686,7 +687,7 @@ def degradation_bsrgan_plus(img, sf=4, shuffle_prob=0.5, use_sharp=True, lq_patc
                 with torch.no_grad():
                     img, hq = isp_model.forward(img.copy(), hq)
         else:
-            print('check the shuffle!')
+            logger.info('check the shuffle!')
 
     # resize to desired size
     img = cv2.resize(img, (int(1 / sf * hq.shape[1]), int(1 / sf * hq.shape[0])),
@@ -702,24 +703,24 @@ def degradation_bsrgan_plus(img, sf=4, shuffle_prob=0.5, use_sharp=True, lq_patc
 
 
 if __name__ == '__main__':
-	print("hey")
+	logger.info("hey")
 	img = util.imread_uint('utils/test.png', 3)
-	print(img)
+	logger.info(img)
 	img = util.uint2single(img)
-	print(img)
+	logger.info(img)
 	img = img[:448, :448]
 	h = img.shape[0] // 4
-	print("resizing to", h)
+	logger.info("resizing to", h)
 	sf = 4
 	deg_fn = partial(degradation_bsrgan_variant, sf=sf)
 	for i in range(20):
-		print(i)
+		logger.info(i)
 		img_lq = deg_fn(img)
-		print(img_lq)
+		logger.info(img_lq)
 		img_lq_bicubic = albumentations.SmallestMaxSize(max_size=h, interpolation=cv2.INTER_CUBIC)(image=img)["image"]
-		print(img_lq.shape)
-		print("bicubic", img_lq_bicubic.shape)
-		print(img_hq.shape)
+		logger.info(img_lq.shape)
+		logger.info("bicubic", img_lq_bicubic.shape)
+		logger.info(img_hq.shape)
 		lq_nearest = cv2.resize(util.single2uint(img_lq), (int(sf * img_lq.shape[1]), int(sf * img_lq.shape[0])),
 		                        interpolation=0)
 		lq_bicubic_nearest = cv2.resize(util.single2uint(img_lq_bicubic), (int(sf * img_lq.shape[1]), int(sf * img_lq.shape[0])),
