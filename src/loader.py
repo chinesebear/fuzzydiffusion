@@ -157,33 +157,94 @@ class CUB200(BaseDataSet):
             data_pairs[i] = [img, text]
         self.data_pairs = data_pairs
         logger.info("CUB200 data preload done")
+        
+def tensor_to_img(data):
+    data = np.uint8((data+1.0)*255/2)
+    c,h,w = data.shape
+    data_rgb = data.reshape(h,w,c)
+    img = Image.fromarray(data_rgb)
+    return img
 
+class LSUN(Dataset):
+    def __init__(self, dataset_path, dataset_sub_path='', phase='train', transform=None, target_transform=None):
+        self.dataset_path = dataset_path
+        self.dataset_sub_path = dataset_sub_path
+        self.dataset = None
+        self.phase = phase # train validation test
+        self.data_len = 0
+        self.data_pairs = []
+        self.transform = transform
+        self.target_transform = target_transform
+        self.data_preload()
+    
+    def data_preload(self):
+        logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload start")
+        sub_map = {"churches":"church_outdoor", "cats":"cat", "bedrooms":"bedrooms"}
+        img_txt_name = sub_map[self.dataset_sub_path]+'_'+self.phase+".txt"
+        img_txt_path = options.base_path+"output/datasets/lsun/"+img_txt_name
+        if not os.path.exists(img_txt_path):
+            logger.error(f"{img_txt_path} not exists")
+            return
+        fd = open(img_txt_path, "r")
+        lines = fd.readlines()
+        fd.close()
+        self.data_len = len(lines)
+        data_pairs = np.empty([self.data_len], dtype=int).tolist()
+        for i in tqdm(range(self.data_len)):
+            img_path = options.base_path+"output/datasets/lsun/"+self.dataset_sub_path+'/'+ lines[i].replace('\n', '')
+            if not os.path.exists(img_path):
+                logger.error(f"{img_path} not exists")
+                return
+            img = Image.open(img_path)
+            text = ''
+            data_pairs[i] = [img.copy(), text]
+            img.close()
+        self.data_pairs = data_pairs
+        logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload done")
+    
+    def __len__(self):
+        return self.data_len
+
+    def __getitem__(self, idx):
+        img,text = self.data_pairs[idx]
+        if self.transform:
+            img = self.transform(img)
+        return img, text
+    
+    
 if __name__ == '__main__':
-    dataset = CIFAR10("cifar10",transform=transforms.Compose([
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]))
-    CIFAR10("cifar10", phase="validation")
-    CIFAR10("cifar10", phase="test")
-    train_data = DataLoader(
-        dataset, batch_size=options.batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
+    # dataset = CIFAR10("cifar10",transform=transforms.Compose([
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #     ]))
+    # CIFAR10("cifar10", phase="validation")
+    # CIFAR10("cifar10", phase="test")
+    # train_data = DataLoader(
+    #     dataset, batch_size=options.batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
     
-    dataset = COCO("ChristophSchuhmann/MS_COCO_2017_URL_TEXT",transform=transforms.Compose([
-            transforms.Resize((32,32)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]))
+    # dataset = COCO("ChristophSchuhmann/MS_COCO_2017_URL_TEXT",transform=transforms.Compose([
+    #         transforms.Resize((32,32)),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #     ]))
     
-    dataset = Flowers("nelorth/oxford-flowers",transform=transforms.Compose([
-            transforms.Resize((32,32)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]))
+    # dataset = Flowers("nelorth/oxford-flowers",transform=transforms.Compose([
+    #         transforms.Resize((32,32)),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #     ]))
     
-    dataset = CUB200("anjunhu/naively_captioned_CUB2002011_train",transform=transforms.Compose([
+    # dataset = CUB200("anjunhu/naively_captioned_CUB2002011_train",transform=transforms.Compose([
+    #         transforms.Resize((32,32)),
+    #         transforms.RandomHorizontalFlip(),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #     ]))
+    
+    dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
             transforms.Resize((32,32)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
