@@ -195,10 +195,8 @@ class LSUN(Dataset):
             if not os.path.exists(img_path):
                 logger.error(f"{img_path} not exists")
                 return
-            img = Image.open(img_path)
             text = ''
-            data_pairs[i] = [img.copy(), text]
-            img.close()
+            data_pairs[i] = [img_path, text]
         self.data_pairs = data_pairs
         logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload done")
     
@@ -206,7 +204,10 @@ class LSUN(Dataset):
         return self.data_len
 
     def __getitem__(self, idx):
-        img,text = self.data_pairs[idx]
+        img_path,text = self.data_pairs[idx]
+        image = Image.open(img_path)
+        img = image.copy()
+        image.close()
         if self.transform:
             img = self.transform(img)
         return img, text

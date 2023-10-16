@@ -1,6 +1,6 @@
 model:
   base_learning_rate: 5.0e-5   # set to target_lr by starting main.py with '--scale_lr False'
-  target: ddpm.LatentDiffusion
+  target: fldm.FuzzyLatentDiffusion
   params:
     linear_start: 0.0015
     linear_end: 0.0155
@@ -16,6 +16,8 @@ model:
     concat_mode: False
     scale_by_std: True
     monitor: 'val/loss_simple_ema'
+    rule_num: 3
+    delegate_path: '/home/yang/sda/github/fuzzydiffusion/output/img/lsun/lsun_churches.csv' 
 
     scheduler_config: # 10000 warmup steps
       target: lr_scheduler.LambdaLinearScheduler
@@ -60,7 +62,11 @@ model:
         lossconfig:
           target: torch.nn.Identity
 
-    cond_stage_config: "__is_unconditional__"
+    cond_stage_config:
+      target: encoders.BERTEmbedder
+      params:
+        n_embed: 1280
+        n_layer: 32
 
 data:
   target: main.DataModuleFromConfig

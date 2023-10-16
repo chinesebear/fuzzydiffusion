@@ -9,6 +9,7 @@ from torchvision import transforms
 from skimage.metrics import structural_similarity
 from tqdm import tqdm
 import torch
+import csv
 
 from setting import options
 from  loader import LSUN
@@ -33,7 +34,7 @@ def img_clustering(imgs, n_clusters):
     delegates_idx_list = np.argmax(ssim, axis=0).tolist()
     delegates_idx = set(delegates_idx_list) ## del repeating items
     n_dlg = len(delegates_idx)
-    delegates = np.empty((n_dlg, c,h,w))
+    delegates = torch.empty((n_dlg, c,h,w))
     for i in range(n_dlg):
         idx = delegates_idx.pop()
         delegates[i] = imgs[idx]
@@ -49,18 +50,27 @@ if __name__ == "__main__":
     train_data = DataLoader(
         dataset, batch_size=100, shuffle=True, drop_last=True, pin_memory=True)
 
-    delegates = None
+    local_delegates = None
     for images,texts in tqdm(train_data):
         dlg = img_clustering(images, 3)
-        if delegates is None:
-            delegates = dlg
+        if local_delegates is None:
+            local_delegates = dlg
         else:
-            delegates = np.concatenate((delegates, dlg), axis=0)
-    local_delegates = torch.from_numpy(delegates)
+            local_delegates = torch.concatenate((local_delegates, dlg), dim=0)
     global_delegates = img_clustering(local_delegates, 3)
     count = 0
     ToImg = transforms.ToPILImage()
+    lsun_path = options.base_path+"output/img/lsun/"
+    lsun_csv_path = lsun_path+"lsun_churches.csv"
+    lsun_img_path_list = []
     for dlg in global_delegates:
         img = ToImg(dlg)
         count = count + 1
-        img.save(options.base_path+"output/img/lsun/"+"lsun_churches_"+str(count)+".jpg") 
+        lsun_img_path = lsun_path+"lsun_churches_"+str(count)+".jpg"
+        img.save(lsun_img_path) ## 经过transforms.Normalize归一化的图片
+        lsun_img_path_list.append(lsun_img_path)
+    with open(lsun_csv_path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["delegates"])
+        for path in lsun_img_path_list:
+            writer.writerow([path])
