@@ -437,7 +437,7 @@ class FuzzyLatentDiffusion(L.LightningModule):
         for i in range(self.rule_num):
             membership = 0
             for j in range(batch_size):
-                membership = self.membership(batch[j], self.delegates[i])
+                membership = membership + self.membership(batch[j], self.delegates[i])
             u_arr[i] = membership / batch_size
         # normalization
         max = np.max(u_arr,axis=0)
@@ -450,6 +450,14 @@ class FuzzyLatentDiffusion(L.LightningModule):
         return (extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
                 extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise)
     
+    def img_generate(self, imgs):
+        b = len(imgs)
+        h,w = imgs[0].size
+        result = Image.new('RGB', (b * w, h))
+        for i in range(b):
+            result.paste(imgs[i], (i*w, 0))
+        return result
+    
     def training_step(self, batch, batch_idx):
         # batch
         img_batch = batch[0]
@@ -457,22 +465,33 @@ class FuzzyLatentDiffusion(L.LightningModule):
         x = img_batch # b c h w
         membership = self.antecedent(img_batch)
         z = self.first_stage_model.encode(x).sample() * self.scale_factor
-        t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long()
-        noise = torch.randn_like(z) # noise
-        z_noisy = self.q_sample(x_start=z, t=t, noise=noise)
-        z_fuzz = []
-        for i in range(self.rule_num):
-            diff_model = self.diffusion_model[i]
-            z_fuzz.append(diff_model(z_noisy, t))
-        z_recon = 0
-        for i in range(self.rule_num):
-            z_recon = z_recon + membership[i]*z_fuzz[i]
+        # t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long().to(options.device)
+        # noise = torch.randn_like(z) # noise
+        # z_noisy = self.q_sample(x_start=z, t=t, noise=noise)
+        # z_fuzz = []
+        # for i in range(self.rule_num):
+        #     diff_model = self.diffusion_model[i]
+        #     z_fuzz.append(diff_model(z_noisy, t))
+        # z_recon = 0
+        # for i in range(self.rule_num):
+        #     z_recon = z_recon + membership[i]*z_fuzz[i]
         x_recon = self.first_stage_model.decode(z_recon)
         loss = torch.nn.functional.mse_loss(x, x_recon)
         self.log('loss',loss, prog_bar=True, logger=True, on_step=True, on_epoch=True, batch_size=2)
+        global_step = self.trainer.global_step
+        if global_step% 10 == 0:
+            img = self.img_generate([self.ToImg(x[0]),
+                                    self.ToImg(x_recon[0]),
+                                    self.ToImg(x[1]),
+                                    self.ToImg(x_recon[1]),])
+            img.save(self.trainer.default_root_dir+"/train.jpg")
         return loss
     
     def on_train_epoch_end(self):
+        root_path = self.trainer.default_root_dir
+        ckpt_path = root_path+"/ckpt/"
+        epoch = self.trainer.current_epoch
+        self.trainer.save_checkpoint(ckpt_path+"epoch"+str(epoch)+".ckpt")
         return
     
     def configure_optimizers(self):
@@ -492,7 +511,6 @@ if __name__ == '__main__':
     root_path = options.base_path+'output/log/'+now +'/fuzzy-latent-diffusion/'
     ckpt_path = root_path + 'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.ckpt'
     log_file = logger.add(root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
-    
     toTensor = ToTensor()
     with open(lsun_csv_path, encoding='utf-8') as f:
         reader = csv.reader(f)
@@ -511,18 +529,18 @@ if __name__ == '__main__':
     unet_config = model_config.params.unet_config
     first_stage_config =  model_config.params.first_stage_config
     cond_stage_config = model_config.params.cond_stage_config
-    first_stage_model = instantiate_from_config(first_stage_config).to(options.device)
-    cond_stage_model = instantiate_from_config(cond_stage_config).to(options.device)
+    first_stage_model = instantiate_from_config(first_stage_config).cpu()
+    cond_stage_model = instantiate_from_config(cond_stage_config).cpu()
     fld_model = FuzzyLatentDiffusion(first_stage_model, cond_stage_model, model_config).to(options.device)
     tb_logger = TensorBoardLogger(save_dir=root_path, name='tensor_board')
     csv_logger = CSVLogger(save_dir=root_path, name='csv_logs', flush_logs_every_n_steps=1)
-    trainer = L.Trainer(accelerator="cpu", #gpu
+    trainer = L.Trainer(accelerator="gpu", #gpu
                         devices=1, 
-                        max_epochs=2, #20
+                        max_epochs=20, #20
                         logger=[tb_logger, csv_logger],
                         log_every_n_steps=1,
                         benchmark=True, 
-                        max_steps= 100,
+                        # max_steps= 100,
                         default_root_dir=root_path)
     dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
             transforms.Resize((256,256)),

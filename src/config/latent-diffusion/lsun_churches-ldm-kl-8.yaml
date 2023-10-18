@@ -1,6 +1,6 @@
 model:
   base_learning_rate: 5.0e-5   # set to target_lr by starting main.py with '--scale_lr False'
-  target: ddpm.LatentDiffusion
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
   params:
     linear_start: 0.0015
     linear_end: 0.0155
@@ -16,9 +16,10 @@ model:
     concat_mode: False
     scale_by_std: True
     monitor: 'val/loss_simple_ema'
+    ckpt_path: "/home/yang/sda/github/fuzzydiffusion/output/models/ldm/lsun_churches256/model.ckpt"
 
     scheduler_config: # 10000 warmup steps
-      target: lr_scheduler.LambdaLinearScheduler
+      target: ldm.lr_scheduler.LambdaLinearScheduler
       params:
         warm_up_steps: [10000]
         cycle_lengths: [10000000000000]
@@ -27,7 +28,7 @@ model:
         f_min: [ 1.]
 
     unet_config:
-      target: openaimodel.UNetModel
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
       params:
         image_size: 32
         in_channels: 4
@@ -41,11 +42,11 @@ model:
         resblock_updown: True
 
     first_stage_config:
-      target: autoencoder.AutoencoderKL
+      target: ldm.models.autoencoder.AutoencoderKL
       params:
         embed_dim: 4
         monitor: "val/rec_loss"
-        ckpt_path: "/home/yang/sda/github/fuzzydiffusion/output/ckpt/first_stage_models/kl-f8/model.ckpt"
+        # ckpt_path: "models/first_stage_models/kl-f8/model.ckpt"
         ddconfig:
           double_z: True
           z_channels: 4
@@ -65,19 +66,15 @@ model:
 data:
   target: main.DataModuleFromConfig
   params:
-    batch_size: 8
+    batch_size: 96
     num_workers: 5
     wrap: False
     train:
-      target: lsun.LSUNChurchesTrain
+      target: ldm.data.lsun.LSUNChurchesTrain
       params:
         size: 256
     validation:
-      target: lsun.LSUNChurchesValidation
-      params:
-        size: 256
-    test:
-      target: lsun.LSUNChurchesTest
+      target: ldm.data.lsun.LSUNChurchesValidation
       params:
         size: 256
 
@@ -93,5 +90,3 @@ lightning:
 
   trainer:
     benchmark: True
-    max_epochs: 2
-    

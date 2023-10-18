@@ -12,10 +12,10 @@ from loguru import logger
 from PIL import Image
 import numpy as np
 
-from fuzzydiffusion.src.model.model import GaussianDiffusionSampler, GaussianDiffusionTrainer, UNet
-from fuzzydiffusion.src.model.scheduler import GradualWarmupScheduler
+from model import GaussianDiffusionSampler, GaussianDiffusionTrainer, UNet
+from scheduler import GradualWarmupScheduler
 from setting import options,setting_info
-from fuzzydiffusion.src.data.loader import CIFAR10,Flowers
+from loader import LSUN
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
@@ -71,15 +71,14 @@ def img_to_tensor(images):
 def train():
     log_file = logger.add(options.base_path+"output/log/train-"+str(datetime.date.today()) +'.log')
     # dataset
-    dataset = Flowers("nelorth/oxford-flowers",transform=transforms.Compose([
-            transforms.RandomCrop((500,500)),
-            transforms.Resize(options.img_size),
+    dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
+            transforms.Resize((256,256)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]))
     train_data = DataLoader(
-        dataset, batch_size=options.batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
+        dataset, batch_size=2, shuffle=True, drop_last=True, pin_memory=True)
     # model setup
     net_model = UNet(T=options.T, ch=options.unet.channel, ch_mult=options.unet.channel_mult, attn=options.unet.attn,
                      num_res_blocks=options.unet.num_res_blocks, dropout=options.unet.dropout).to(options.device)
@@ -99,7 +98,7 @@ def train():
         step = int(len(train_data) / 5)
         total_loss = 0
         func_start()
-        for images, text in train_data :
+        for images, text in tqdm(train_data) :
             # train
             optimizer.zero_grad()
             x_0 = images.to(options.device)
