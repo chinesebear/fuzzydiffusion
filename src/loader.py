@@ -210,7 +210,11 @@ class LSUN(Dataset):
         image.close()
         if self.transform:
             img = self.transform(img)
-        return img, text
+        img = np.array(img)
+        c,h,w = img.shape
+        img = img.reshape(h,w,c)
+        item = {'image': img}
+        return item
     
     
 if __name__ == '__main__':

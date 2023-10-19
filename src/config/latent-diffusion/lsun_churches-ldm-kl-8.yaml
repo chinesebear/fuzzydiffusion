@@ -1,6 +1,7 @@
 model:
   base_learning_rate: 5.0e-5   # set to target_lr by starting main.py with '--scale_lr False'
-  target: ldm.models.diffusion.ddpm.LatentDiffusion
+  #target: ldm.models.diffusion.ddpm.LatentDiffusion
+  target: fldm.FuzzyLatentDiffusion
   params:
     linear_start: 0.0015
     linear_end: 0.0155
@@ -17,6 +18,8 @@ model:
     scale_by_std: True
     monitor: 'val/loss_simple_ema'
     ckpt_path: "/home/yang/sda/github/fuzzydiffusion/output/models/ldm/lsun_churches256/model.ckpt"
+    rule_num: 3
+    delegates_path: "/home/yang/sda/github/fuzzydiffusion/output/img/lsun/lsun_churches.csv"
 
     scheduler_config: # 10000 warmup steps
       target: ldm.lr_scheduler.LambdaLinearScheduler
