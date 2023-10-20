@@ -1,3 +1,7 @@
+import datetime
+import copy
+import os
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -15,15 +19,6 @@ from PIL import Image
 import csv
 from skimage.metrics import structural_similarity
 from omegaconf import OmegaConf
-import datetime
-import copy
-
-from torch.optim.lr_scheduler import LambdaLR
-from einops import rearrange, repeat
-from contextlib import contextmanager
-from functools import partial
-from tqdm import tqdm
-from torchvision.utils import make_grid
 
 
 import loralib as lora
@@ -32,39 +27,6 @@ from ldm.util import instantiate_from_config,count_params
 from ldm.modules.ema import LitEma
 from loader import LSUN
 from setting import options
-
-__conditioning_keys__ = {'concat': 'c_concat',
-                         'crossattn': 'c_crossattn',
-                         'adm': 'y'}
-
-class DiffusionWrapper(nn.Module):
-    def __init__(self, diff_model_config, conditioning_key=None):
-        super().__init__()
-        self.diffusion_model = instantiate_from_config(diff_model_config)
-        self.conditioning_key = conditioning_key
-        assert self.conditioning_key in [None, 'concat', 'crossattn', 'hybrid', 'adm']
-
-    def forward(self, x, t, c_concat: list = None, c_crossattn: list = None):
-        if self.conditioning_key is None:
-            out = self.diffusion_model(x, t)
-        elif self.conditioning_key == 'concat':
-            xc = torch.cat([x] + c_concat, dim=1)
-            out = self.diffusion_model(xc, t)
-        elif self.conditioning_key == 'crossattn':
-            cc = torch.cat(c_crossattn, 1)
-            out = self.diffusion_model(x, t, context=cc)
-        elif self.conditioning_key == 'hybrid':
-            xc = torch.cat([x] + c_concat, dim=1)
-            cc = torch.cat(c_crossattn, 1)
-            out = self.diffusion_model(xc, t, context=cc)
-        elif self.conditioning_key == 'adm':
-            cc = c_crossattn[0]
-            out = self.diffusion_model(x, t, y=cc)
-        else:
-            logger.error(f"diffusion model conditioning_key [{self.conditioning_key}] error")
-            raise NotImplementedError()
-
-        return out
 
 class FuzzyDiffusion(pl.LightningModule):
     def __init__(self, diffusion_model, rule_num):
@@ -77,6 +39,8 @@ class FuzzyDiffusion(pl.LightningModule):
         self.diffusion_models = nn.ModuleList(diffusion_models)
         self.rule_num = rule_num
         self.fires = []
+        for _ in range(rule_num):
+            self.fires.append(1/rule_num)
     
     def forward(self,  x, t, c_concat: list = None, c_crossattn: list = None):
         x_fuzz = []
@@ -103,6 +67,12 @@ class FuzzyLatentDiffusion(LatentDiffusion):
         self.delegates = self.load_delegates(delegates_path)
         self.fires = [] # membership
         self.to_img = transforms.ToPILImage()
+        self.transform=transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ])
         
     def load_delegates(self, delegate_path):
         # load delegates of fuzzy system rule antecedent
@@ -119,8 +89,7 @@ class FuzzyLatentDiffusion(LatentDiffusion):
         return delegates
         
     def membership(self, x, delegate):
-        h,w,c = x.size() #numpy => h,w,c ; tensor => c,h,w
-        x = x.view(c,h,w)
+        #numpy => h,w,c ; tensor => c,h,w
         im1 = self.to_img(x).convert('L') # gray
         im2 = Image.fromarray(delegate).convert('L') # gray
         im1 = np.uint8(im1)
@@ -143,12 +112,74 @@ class FuzzyLatentDiffusion(LatentDiffusion):
         fires = u_arr/max
         return fires
     
+    def mkdir(self, path):
+        if not os.path.exists(path): 
+            os.makedirs(path)
+
+    def log_img_save(self, log, key, is_batch=False):
+        epoch = self.trainer.current_epoch
+        img_path = self.trainer.default_root_dir+f"/img/epoch_{epoch}/"
+        share_path = "/home/yang/sda/github/fuzzydiffusion/output/img/share/"
+        self.mkdir(img_path)
+        self.mkdir(share_path)
+        if not is_batch:
+            img = self.to_img(log[f'{key}'])
+            img.save(img_path+f'{key}.jpg')
+            img.save(share_path+f'{key}.jpg')
+        else:
+            inputs = log[f'{key}']
+            b,c,h,w = inputs.shape
+            if c > 4:
+                inputs = inputs.view(b,w,c,h)
+            for i in range(b):
+                img = self.to_img(inputs[i])
+                img.save(img_path+f'{key}_{i}.jpg')
+                img.save(share_path+f'{key}_{i}.jpg')
+
+    def log_img_local(self):
+        imgs = []
+        path = "/home/yang/sda/github/fuzzydiffusion/output/img/samples/lsun_churches.csv"
+        with open(path, encoding='utf-8') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            # print(headers)
+            for row in reader:
+                img_path = row[0]
+                img = Image.open(img_path)
+                img = self.transform(img)
+                h,w,c = img.shape
+                imgs.append(img)
+        b = len(imgs)
+        images = torch.empty((b,h,w,c))
+        for i in range(b):
+            images[i] = imgs[i]
+        log = self.log_images({'image':images}, N=8)
+        # save valid images
+        self.log_img_save(log, 'inputs',is_batch=True)
+        self.log_img_save(log, 'reconstruction',is_batch=True)
+        self.log_img_save(log, 'diffusion_row')
+        self.log_img_save(log, 'samples',is_batch=True)
+        self.log_img_save(log, 'samples_inpainting',is_batch=True)
+        self.log_img_save(log, 'mask',is_batch=True)
+        self.log_img_save(log, 'samples_outpainting',is_batch=True)
+        self.log_img_save(log, 'progressive_row')
+
     @rank_zero_only
     @torch.no_grad()
     def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
         self.fires = self.antecedent(batch)
         self.model.fires = self.fires
         super().on_train_batch_start(batch, batch_idx, dataloader_idx)
+        
+    def on_train_batch_end(self, *args, **kwargs):
+        return super().on_train_batch_end(*args, **kwargs)
+    
+    def on_epoch_end(self) -> None:
+        epoch = self.trainer.current_epoch
+        path = self.trainer.default_root_dir
+        self.trainer.save_checkpoint(path+f"/models/epoch_{epoch}.ckpt", weights_only=True)
+        self.log_img_local()
+        return super().on_epoch_end()
 
     def forward(self, x, c, *args, **kwargs):
         return super().forward(x, c, *args, **kwargs)
@@ -160,6 +191,12 @@ def config_learning_rate(model, model_config):
     logger.info("++++ NOT USING LR SCALING ++++")
     logger.info(f"Setting learning rate to {model.learning_rate:.2e}")
 
+def stat_parameter_number(model):
+    total_num = sum(p.numel() for p in model.parameters())
+    trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"Total: {total_num}, Trainable: {trainable_num}")
+
+
 if __name__ == '__main__':
     lsun_csv_path = "/home/yang/sda/github/fuzzydiffusion/output/img/lsun/lsun_churches.csv"
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
@@ -168,16 +205,9 @@ if __name__ == '__main__':
     log_file = logger.add(root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
     config = OmegaConf.load("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
     model_config = config.pop("model", OmegaConf.create())
-    # lightning_config = config.pop("lightning", OmegaConf.create())
-    # trainer_config = lightning_config.pop("trainer", OmegaConf.create())
-    # data_config = config.pop("data", OmegaConf.create())
-    # unet_config = model_config.params.unet_config
-    # first_stage_config =  model_config.params.first_stage_config
-    # cond_stage_config = model_config.params.cond_stage_config
-    # first_stage_model = instantiate_from_config(first_stage_config).cpu()
-    # cond_stage_model = instantiate_from_config(cond_stage_config).cpu()
     fld_model = instantiate_from_config(model_config).to(options.device)
     config_learning_rate(fld_model, model_config)
+    stat_parameter_number(fld_model)
     tb_logger = TensorBoardLogger(save_dir=root_path, name='tensor_board')
     csv_logger = CSVLogger(save_dir=root_path, name='csv_logs', flush_logs_every_n_steps=1)
     trainer = pl.Trainer(accelerator="gpu", #gpu
@@ -186,18 +216,18 @@ if __name__ == '__main__':
                         logger=[tb_logger, csv_logger],
                         log_every_n_steps=1,
                         benchmark=True, 
-                        # max_steps= 100,
+                        # max_steps= 10,
                         default_root_dir=root_path)
     dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
             transforms.Resize((256,256)),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]))
     train_data = DataLoader(
-        dataset, batch_size=32, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
+        dataset, batch_size=16, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
     trainer.fit(fld_model, train_data)
-    trainer.save_checkpoint(ckpt_path)
+    trainer.save_checkpoint(ckpt_path, weights_only=True)
     logger.remove(log_file)
-            
+
     

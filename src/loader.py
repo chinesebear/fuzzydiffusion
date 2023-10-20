@@ -210,10 +210,7 @@ class LSUN(Dataset):
         image.close()
         if self.transform:
             img = self.transform(img)
-        img = np.array(img)
-        c,h,w = img.shape
-        img = img.reshape(h,w,c)
-        item = {'image': img}
+        item = {'image': img, 'text': ''} # img:torch.tensor c,h,w
         return item
     
     
@@ -250,15 +247,18 @@ if __name__ == '__main__':
     #     ]))
     
     dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
-            transforms.Resize((32,32)),
+            transforms.Resize((256,256)),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            # transforms.ToTensor(),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]))
     
     train_data = DataLoader(
         dataset, batch_size=options.batch_size, shuffle=True, drop_last=True, pin_memory=True)
-    
-    for image,text in train_data:
-        image = image.to("cuda")
-        image = image.to('cpu')
+    ToImg = transforms.ToPILImage()
+    for data in train_data:
+        b,h,w,c = data['image'].shape
+        imgs = data['image'].view(b,c,h,w)
+        img = ToImg(imgs[0])
+        img.save("/home/yang/sda/github/fuzzydiffusion/output/img/loader.jpg")
+        
