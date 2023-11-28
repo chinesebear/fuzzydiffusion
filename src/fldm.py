@@ -23,10 +23,12 @@ from omegaconf import OmegaConf
 
 import loralib as lora
 from ldm.models.diffusion.ddpm import LatentDiffusion
+from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.util import instantiate_from_config,count_params
 from ldm.modules.ema import LitEma
 from loader import LSUN
 from setting import options
+from metrics import Evaluator
 
 class FuzzyDiffusion(pl.LightningModule):
     def __init__(self, diffusion_model, rule_num):
@@ -176,8 +178,10 @@ class FuzzyLatentDiffusion(LatentDiffusion):
     
     def on_epoch_end(self) -> None:
         epoch = self.trainer.current_epoch
-        path = self.trainer.default_root_dir
-        self.trainer.save_checkpoint(path+f"/models/epoch_{epoch}.ckpt", weights_only=True)
+        path = self.trainer.default_root_dir+"/models/"
+        self.mkdir(path)
+        # self.trainer.save_checkpoint(path+f"epoch_{epoch}.ckpt")
+        torch.save(lora.lora_state_dict(self.model), path+f"epoch_{epoch}_lora.ckpt")
         self.log_img_local()
         return super().on_epoch_end()
 
@@ -196,11 +200,18 @@ def stat_parameter_number(model):
     trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Total: {total_num}, Trainable: {trainable_num}")
 
+def tensor_to_img(img_tensors):
+    imgs = []
+    toImg = transforms.ToPILImage()
+    for tensor in img_tensors:
+        img = toImg(tensor)
+        imgs.append(img)
+    return imgs
 
-if __name__ == '__main__':
+def unconditional_train():
     lsun_csv_path = "/home/yang/sda/github/fuzzydiffusion/output/img/lsun/lsun_churches.csv"
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    root_path = options.base_path+'output/log/'+now +'/fuzzy-latent-diffusion/'
+    root_path = options.base_path+'output/log/lsun_churches/'+now +'/'
     ckpt_path = root_path + 'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.ckpt'
     log_file = logger.add(root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
     config = OmegaConf.load("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
@@ -212,7 +223,7 @@ if __name__ == '__main__':
     csv_logger = CSVLogger(save_dir=root_path, name='csv_logs', flush_logs_every_n_steps=1)
     trainer = pl.Trainer(accelerator="gpu", #gpu
                         devices=1, 
-                        max_epochs=20, #20
+                        max_epochs=5, #20
                         logger=[tb_logger, csv_logger],
                         log_every_n_steps=1,
                         benchmark=True, 
@@ -227,7 +238,58 @@ if __name__ == '__main__':
     train_data = DataLoader(
         dataset, batch_size=16, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
     trainer.fit(fld_model, train_data)
-    trainer.save_checkpoint(ckpt_path, weights_only=True)
+    trainer.save_checkpoint(ckpt_path)
     logger.remove(log_file)
+
+def unconditional_test():
+    now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    root_path = options.base_path+'output/log/lsun_churches/'+now +'/'
+    log_file = logger.add(root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
+    config = OmegaConf.load("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
+    model_config = config.pop("model", OmegaConf.create())
+    fld_model = instantiate_from_config(model_config).to(options.device)
+    # Then load the LoRA checkpoint
+    fld_model.load_state_dict(torch.load('/home/yang/sda/github/fuzzydiffusion/output/log/lsun_churches/2023-11-02T08-43-24/models/epoch_4_lora.ckpt'), strict=False)
+    config_learning_rate(fld_model, model_config)
+    stat_parameter_number(fld_model)
+    eval = Evaluator()
+    dataset = LSUN('lsun', 'churches','val', transform=transforms.Compose([
+            transforms.Resize((256,256)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]))
+    test_data = DataLoader(
+        dataset, batch_size=8, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
+    for batch in tqdm(test_data):
+        x = batch['image']
+        z = fld_model.get_input(batch, 'image')[0]
+
+        z_start = z
+        t = torch.randint(0, fld_model.num_timesteps, (z_start.shape[0],), device=fld_model.device).long()
+        noise = torch.randn_like(z_start)
+        z_noisy = fld_model.q_sample(x_start=z_start, t=t, noise=noise)
+        ddim = DDIMSampler(fld_model.model)
+        shape = batch.shape
+        bs = shape[0]
+        shape = shape[1:]
+        samples, intermediates = ddim.sample(50, batch_size=bs, shape=shape, eta=1.0, verbose=False,x0=z_start, x_T=z_noisy)
+        z_rec = samples
+
+        x_rec = fld_model.decode_first_stage(z_rec)
+        real_imgs = tensor_to_img(x)
+        fake_imgs = tensor_to_img(x_rec)
+        fid = eval.calc_fid(real_imgs, fake_imgs)
+        logger.info(f"fid:{fid}")
+        precision,recall = eval.calc_preision_recall(real_imgs, fake_imgs)
+        logger.info(f"precision:{precision},recall:{recall}")
+        
+    logger.remove(log_file)
+
+
+
+if __name__ == '__main__':
+    # unconditional_train()
+    unconditional_test()
 
     

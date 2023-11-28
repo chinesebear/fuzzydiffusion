@@ -1,0 +1,9 @@
+real_imgs,fake_imgs
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_0.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_0.jpg
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_1.jpg
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_2.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_2.jpg
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_3.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_3.jpg
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_4.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_4.jpg
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_5.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_5.jpg
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_6.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_6.jpg
+/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_7.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_7.jpg

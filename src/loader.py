@@ -166,12 +166,13 @@ def tensor_to_img(data):
     return img
 
 class LSUN(Dataset):
-    def __init__(self, dataset_path, dataset_sub_path='', phase='train', transform=None, target_transform=None):
+    def __init__(self, dataset_path, dataset_sub_path='', phase='train', transform=None, target_transform=None, data_limit=None):
         self.dataset_path = dataset_path
-        self.dataset_sub_path = dataset_sub_path
+        self.dataset_sub_path = dataset_sub_path # churches,bedrooms,cats
         self.dataset = None
         self.phase = phase # train validation test
         self.data_len = 0
+        self.data_limit = data_limit
         self.data_pairs = []
         self.transform = transform
         self.target_transform = target_transform
@@ -188,17 +189,45 @@ class LSUN(Dataset):
         fd = open(img_txt_path, "r")
         lines = fd.readlines()
         fd.close()
-        self.data_len = len(lines)
+        if self.data_limit is None:
+            self.data_len = len(lines)
+        elif len(lines) > self.data_limit:
+            self.data_len = self.data_limit
+        else:
+            self.data_len = len(lines)
         data_pairs = np.empty([self.data_len], dtype=int).tolist()
         for i in tqdm(range(self.data_len)):
-            img_path = options.base_path+"output/datasets/lsun/"+self.dataset_sub_path+'/'+ lines[i].replace('\n', '')
-            if not os.path.exists(img_path):
+            img_path = options.base_path+f"output/datasets/lsun/{self.dataset_sub_path}_{self.phase}/"+ lines[i].replace('\n', '')
+            if i < 100 and not os.path.exists(img_path):
                 logger.error(f"{img_path} not exists")
                 return
             text = ''
             data_pairs[i] = [img_path, text]
         self.data_pairs = data_pairs
         logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload done")
+    
+    # def data_preload(self):
+    #     logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload start")
+    #     imgs_path = options.base_path+f"output/datasets/lsun/{self.dataset_sub_path}_{self.phase}"
+    #     ld = os.listdir(imgs_path)
+    #     for file in ld:
+    #         if file.endswith(".webp"):
+    #             self.data_len = self.data_len + 1
+    #     logger.info(f"{self.dataset_sub_path}-{self.phase} data size:{self.data_len}")
+    #     gen = os.walk(imgs_path)
+    #     data_pairs = np.empty([self.data_len], dtype=int).tolist()
+    #     idx = 0
+    #     for path,dir_list,file_list in gen:
+    #         for file_name in tqdm(file_list): 
+    #             img_path = options.base_path+f"output/datasets/lsun/{self.dataset_sub_path}_{self.phase}/{file_name}"
+    #             if not os.path.exists(img_path):
+    #                 logger.error(f"{img_path} not exists")
+    #                 return
+    #             text = ''
+    #             data_pairs[idx] = [img_path, text]
+    #             idx = idx + 1
+    #     self.data_pairs = data_pairs
+    #     logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload done")
     
     def __len__(self):
         return self.data_len
@@ -210,6 +239,7 @@ class LSUN(Dataset):
         image.close()
         if self.transform:
             img = self.transform(img)
+            img = img
         item = {'image': img, 'text': ''} # img:torch.tensor c,h,w
         return item
     

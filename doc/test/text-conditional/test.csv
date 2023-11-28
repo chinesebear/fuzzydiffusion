@@ -1,0 +1,8 @@
+img1,img2, prompt
+/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/1-1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/1-2.jpg,A street sign that reads “Latent Diffusion”
+/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/2-1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/2-2.jpg,A zombie in the style of Picasso
+/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/3-1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/3-2.jpg,An image of an animal half mouse half octopus
+/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/4-1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/4-2.jpg,An illustration of a slightly conscious neural network
+/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/5-1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/5-2.jpg,A painting of a squirrel eating a burger
+/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/6-1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/6-2.jpg,A watercolor painting of a chair that looks like an octopus
+/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/7-1.jpg,/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/7-2.jpg,A shirt with the inscription: “I love generative models!”
