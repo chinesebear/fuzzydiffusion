@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import matplotlib.pyplot as plt
 import numpy as np
 
 import pytorch_lightning as pl
@@ -56,35 +57,56 @@ def combine_imgs(x, x_p, x_rec):
  
     # 保存图片
     result.save("/home/yang/sda/github/fuzzydiffusion/output/img/lsun.jpg")
+    
+def metrics_fig(name, data):
+    xmax = len(data)
+    xpoints = np.arange(xmax)
+    ypoints = np.array(data)
+    
+    plt.figure(figsize=(5,5)) 
+    plt.title(name)
+    plt.plot(xpoints, ypoints, color='blue')
+    plt.xlabel("batch")
+    plt.ylabel(f"{name} score")
+    plt.savefig(f"/home/yang/sda/github/fuzzydiffusion/output/img/metrics_{name}.jpg")
+    plt.show() 
+
+def metrics_mean(data):
+    count = len(data)
+    sum = 0.0
+    for i in range(count):
+        sum = sum + data[i]
+    mean = sum / count
+    return round(mean, 2)
 
 def csv_record(path, data):
     header = ['fid', 'is', 'mifid', 'kid',
               'psnr','ms_ssim','ssim',
               'precision', 'recall']  
-    if len(data) != len(header):
-        logger.error("csv header field number error")
-        return
+    row = []
+    for name in header:
+        row.append(data[name])
     if os.path.exists(path):
         with open(path, 'a',newline='') as f:
             write = csv.writer(f)
-            write.writerow(data)
+            write.writerow(row)
     else:
         with open(path, 'w', newline='') as f:
             write = csv.writer(f)
             write.writerow(header)
-            write.writerow(data)
+            write.writerow(row)
 
 def csv_dist_record(path, data):
     header = ['x', 'z', 'z_noisy', 'z_rec',
               'x_rec','x_p','x_norm', "x_p_norm","x_rec_norm"]
-    if len(data) != len(header):
-        logger.error("csv header field number error")
-        return
+    row_data = []
+    for name in header:
+        row_data.append(data[name])
     if os.path.exists(path):
         with open(path, 'a',newline='') as f:
             write = csv.writer(f)
             row = []
-            for d in data:
+            for d in row_data:
                 row.append(f"{round(d.mean().item(),2)}/{round(d.std().item(),2)}")
             write.writerow(row)
     else:
@@ -92,7 +114,7 @@ def csv_dist_record(path, data):
             write = csv.writer(f)
             write.writerow(header)
             row = []
-            for d in data:
+            for d in row_data:
                 row.append(f"{round(d.mean().item(),2)}/{round(d.std().item(),2)}")
             write.writerow(row)
 
@@ -100,15 +122,20 @@ def lsun_test(dataset_name, config_path):
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
     root_path = options.base_path+f'output/log/lsun_{dataset_name}/'+now +'/'
     log_file = logger.add(root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
-    csv_path = root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.csv'
-    dist_csv_path = root_path+'fuzzy-latent-diffusion-dist-'+str(datetime.date.today()) +'.csv'
+    metrics_csv_path = root_path+'metrics-'+str(datetime.date.today()) +'.csv'
+    dist_csv_path = root_path+'distribution-'+str(datetime.date.today()) +'.csv'
     
     config = OmegaConf.load(config_path)
     model_config = config.pop("model", OmegaConf.create())
     ldmodel = instantiate_from_config(model_config).to(options.device)
+    ddim = DDIMSampler(ldmodel)
 
-    eval = Evaluator(device=torch.device("cpu"))
-    dataset = LSUN('lsun', dataset_name,'train', data_limit= 6400,
+    # eval = Evaluator(device=torch.device("cpu"))
+    eval = Evaluator()
+    dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
+                   dataset_sub_path=dataset_name,
+                   phase='train', 
+                   data_limit= 6400,
                    transform=transforms.Compose([
                     transforms.Resize((256,256)),
                     # transforms.RandomHorizontalFlip(),
@@ -120,125 +147,110 @@ def lsun_test(dataset_name, config_path):
     test_data = DataLoader(
         dataset, batch_size=batch_size, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
     
-    real_imgs = torch.empty((test_data.dataset.data_len, 3, 256, 256)).cpu()
-    gen_imgs = torch.empty((test_data.dataset.data_len, 3, 256, 256)).cpu()
-    r_offset = 0
-    g_offset = 0
+    sigmoid = nn.Sigmoid()
+    met_data = {}
+    met_data['fid'] = []
+    met_data['is'] = []
+    met_data['mifid'] = []
+    met_data['kid'] = []
+    met_data['psnr'] = []
+    met_data['ms_ssim'] = []
+    met_data['ssim'] = []
+    met_data['precision'] = []
+    met_data['recall'] = []
+    met_data['psnr_m'] = []
+    met_data['ms_ssim_m'] = []
+    met_data['ssim_m'] = []
+    met_data['precision_m'] = []
+    met_data['recall_m'] = []
+    
+    count = 0
     for batch in tqdm(test_data):
-        bs = len(batch)
         x = batch['image'].cuda()
         z = ldmodel.get_input(batch, 'image')[0]
-
         z_start = z
         t = torch.randint(0, ldmodel.num_timesteps, (z_start.shape[0],), device=ldmodel.device).long()
         t = torch.ones_like(t).long()*(ldmodel.num_timesteps -1)
         noise = torch.randn_like(z_start)
         z_noisy = ldmodel.q_sample(x_start=z_start, t=t, noise=noise)
-        ddim = DDIMSampler(ldmodel)
-        shape = x.shape
-        bs = shape[0]
-        shape = shape[1:]
+        
+        bs,c,h,w = z.shape
+        shape = (c,h,w)
         samples, _ = ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
         # samples = ldmodel.sample(cond=None, batch_size=batch_size, x_T=z_noisy)
         z_rec = samples
         x_rec = ldmodel.decode_first_stage(z_rec)
         x_p = ldmodel.decode_first_stage(z)
         
-        x_rec_norm =  x_rec/2 + 0.5# [-1,1]  -> [0,1]
-        x_p_norm = x_p/2 + 0.5
-        x_norm = x/2 + 0.5
+        # compress [-1,1]  into  [0,1]
+        x_rec_norm =  sigmoid(x_rec)
+        x_p_norm = sigmoid(x_p)
+        x_norm = sigmoid(x)
         
+        distributions = {}
+        distributions['x'] = x
+        distributions['z'] = z
+        distributions['z_noisy'] = z_noisy
+        distributions['z_rec'] = z_rec
+        distributions['x_rec'] = x_rec
+        distributions['x_p'] = x_p
+        distributions['x_norm'] = x_norm
+        distributions['x_p_norm'] = x_p_norm
+        distributions['x_rec_norm'] = x_rec_norm
+        csv_dist_record(dist_csv_path, distributions)
         combine_imgs(x_norm, x_p_norm,x_rec_norm)
         
-        for i in range(bs):
-            real_imgs[r_offset+i] = x_norm[i].cpu()
-            gen_imgs[g_offset+i] = x_rec_norm[i].cpu()
-        r_offset = r_offset + bs
-        g_offset = g_offset + bs
+        count = count + 1
+        real_imgs = x_norm
+        gen_imgs = x_rec_norm
+        fid = eval.calc_fid(real_imgs, gen_imgs)
+        _is = eval.calc_is(gen_imgs)
+        mifid = eval.calc_mifid(real_imgs, gen_imgs)
+        kid = eval.calc_kid(real_imgs, gen_imgs)
+        met_data['fid'].append(fid)
+        met_data['is'].append(_is)
+        met_data['mifid'].append(mifid)
+        met_data['kid'].append(kid)
+        logger.info(f"fid:{fid},is:{_is},mifid:{mifid},kid:{kid}")
         
-    fid = eval.calc_fid(real_imgs, gen_imgs)
-    _is = eval.calc_is(gen_imgs)
-    mifid = eval.calc_mifid(real_imgs, gen_imgs)
-    kid = eval.calc_kid(real_imgs, gen_imgs)
-    logger.info(f"fid:{fid},is:{_is},mifid:{mifid},kid:{kid}")
-    
-    pnsr = eval.calc_psnr(real_imgs, gen_imgs)
-    ms_ssim = eval.calc_ms_ssim(real_imgs, gen_imgs)
-    ssim = eval.calc_ssim(real_imgs, gen_imgs)
-    logger.info(f"psnr:{pnsr},ms_ssim:{ms_ssim},ssim:{ssim}")
-    
-    precision,recall = eval.calc_preision_recall(real_imgs, gen_imgs)
-    logger.info(f"precision:{precision},recall:{recall}")
-    
-    # total_precision = 0.0
-    # total_recall = 0.0
-    # total_psnr = 0.0
-    # total_ms_ssim = 0.0
-    # total_ssim = 0.0
-    # count = 0
-    # for batch in tqdm(test_data):
-    #     x = batch['image'].cuda()
-    #     z = ldmodel.get_input(batch, 'image')[0]
-    #     z_start = z
-    #     t = torch.randint(0, ldmodel.num_timesteps, (z_start.shape[0],), device=ldmodel.device).long()
-    #     t = torch.ones_like(t).long()*(ldmodel.num_timesteps -1)
-    #     noise = torch.randn_like(z_start)
-    #     z_noisy = ldmodel.q_sample(x_start=z_start, t=t, noise=noise)
-    #     ddim = DDIMSampler(ldmodel)
-    #     shape = x.shape
-    #     bs = shape[0]
-    #     shape = shape[1:]
-    #     samples, _ = ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
-    #     # samples = ldmodel.sample(cond=None, batch_size=batch_size, x_T=z_noisy)
-    #     z_rec = samples
-    #     x_rec = ldmodel.decode_first_stage(z_rec)
-    #     x_p = ldmodel.decode_first_stage(z)
+        psnr = eval.calc_psnr(real_imgs, gen_imgs)
+        ms_ssim = eval.calc_ms_ssim(real_imgs, gen_imgs)
+        ssim = eval.calc_ssim(real_imgs, gen_imgs)
+        met_data['psnr'].append(psnr)
+        met_data['ms_ssim'].append(ms_ssim)
+        met_data['ssim'].append(ssim)
+        logger.info(f"psnr:{metrics_mean(met_data['psnr'])},ms_ssim:{metrics_mean(met_data['ms_ssim'])},ssim:{metrics_mean(met_data['ssim'])}")
         
-    #     # x_rec_norm = (x_rec-x_rec.mean())/x_rec.std()/2 + 0.5 # [-1,1]  -> [0,1]
-    #     # x_p_norm = (x_p-x_p.mean())/x_p.std()/2 + 0.5
-    #     # x_norm = (x-x.mean())/x.std()/2 + 0.5
-    #     x_rec_norm =  x_rec/2 + 0.5# [-1,1]  -> [0,1]
-    #     x_p_norm = x_p/2 + 0.5
-    #     x_norm = x/2 + 0.5
+        precision,recall = eval.calc_preision_recall(real_imgs, gen_imgs)
+        met_data['precision'].append(precision)
+        met_data['recall'].append(recall)
+        logger.info(f"precision:{metrics_mean(met_data['precision'])},recall:{metrics_mean(met_data['recall'])}")
         
-    #     csv_dist_record(dist_csv_path, [x,z,z_noisy,z_rec, x_rec,x_p, x_norm, x_p_norm, x_rec_norm])
-    #     combine_imgs(x_norm, x_p_norm,x_rec_norm)
+        met_data['psnr_m'].append(metrics_mean(met_data['psnr']))
+        met_data['ms_ssim_m'].append(metrics_mean(met_data['ms_ssim']))
+        met_data['ssim_m'].append(metrics_mean(met_data['ssim']))
+        met_data['precision_m'].append(metrics_mean(met_data['precision']))
+        met_data['recall_m'].append(metrics_mean(met_data['recall']))
         
-    #     count = count + 1
-    #     real_imgs = x_norm
-    #     gen_imgs = x_rec_norm
-    #     fid = eval.calc_fid(real_imgs, gen_imgs)
-    #     _is = eval.calc_is(gen_imgs)
-    #     mifid = eval.calc_mifid(real_imgs, gen_imgs)
-    #     kid = eval.calc_kid(real_imgs, gen_imgs)
-    #     logger.info(f"fid:{fid},is:{_is},mifid:{mifid},kid:{kid}")
+        record_row = {}
+        record_row['fid'] = str(fid)
+        record_row['is'] = str(_is)
+        record_row['mifid'] = str(mifid)
+        record_row['kid'] = str(kid)
+        record_row['psnr'] = str(metrics_mean(met_data['psnr']))
+        record_row['ms_ssim'] = str(metrics_mean(met_data['ms_ssim']))
+        record_row['ssim'] = str(metrics_mean(met_data['ssim']))
+        record_row['precision'] = str(metrics_mean(met_data['precision']))
+        record_row['recall'] = str(metrics_mean(met_data['recall']))
         
-    #     pnsr = eval.calc_psnr(real_imgs, gen_imgs)
-    #     ms_ssim = eval.calc_ms_ssim(real_imgs, gen_imgs)
-    #     ssim = eval.calc_ssim(real_imgs, gen_imgs)
-    #     total_psnr = total_psnr + pnsr
-    #     total_ms_ssim = total_ms_ssim + ms_ssim
-    #     total_ssim = total_ssim + ssim
-    #     logger.info(f"psnr:{round(total_psnr/count,2)},ms_ssim:{round(total_ms_ssim/count,2)},ssim:{round(total_ssim/count,2)}")
-        
-    #     precision,recall = eval.calc_preision_recall(real_imgs, gen_imgs)
-    #     total_precision = total_precision+ precision
-    #     total_recall = total_recall + recall
-    #     logger.info(f"precision:{round(total_precision/count,2)},recall:{round(total_recall/count,2)}")
-        
-    #     record_row = [str(fid), 
-    #                   str(_is), 
-    #                   str(mifid), 
-    #                   str(kid), 
-    #                   str(round(total_psnr/count,2)),
-    #                   str(round(total_ms_ssim/count,2)),
-    #                   str(round(total_ssim/count,2)),
-    #                   str(round(total_precision/count,2)),
-    #                   str(round(total_recall/count,2))]
-    #     csv_record(csv_path, record_row)
-    # logger.remove(log_file)
+        csv_record(metrics_csv_path, record_row)
+        metrics_fig("fid", met_data['fid'])
+        metrics_fig("precision", met_data['precision_m'])
+        metrics_fig("recall", met_data['recall_m'])
+        metrics_fig("psnr", met_data['psnr_m'])
+    logger.remove(log_file)
 
 if __name__ == '__main__':
     setup_seed(10)
-    #  lsun_test('churches', "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
+    # lsun_test('churches', "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
     lsun_test('bedrooms', "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml")

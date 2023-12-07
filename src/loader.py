@@ -157,13 +157,127 @@ class CUB200(BaseDataSet):
             data_pairs[i] = [img, text]
         self.data_pairs = data_pairs
         logger.info("CUB200 data preload done")
-        
+
 def tensor_to_img(data):
     data = np.uint8((data+1.0)*255/2)
     c,h,w = data.shape
     data_rgb = data.reshape(h,w,c)
     img = Image.fromarray(data_rgb)
     return img
+
+class FFHQ(Dataset):
+    def __init__(self, dataset_path, dataset_sub_path='', phase='train', transform=None, target_transform=None, data_limit=None):
+        self.dataset_path = dataset_path
+        self.dataset_sub_path = dataset_sub_path # churches,bedrooms,cats
+        self.dataset = None
+        self.phase = phase # train validation test
+        self.data_len = 0
+        self.data_limit = data_limit
+        self.data_pairs = []
+        self.transform = transform
+        self.target_transform = target_transform
+        self.data_preload()
+    
+    def data_preload(self):
+        logger.info(f"FFHQ data preload start")
+        imgs_path = self.dataset_path
+        ld = os.listdir(imgs_path)
+        img_total = 0
+        for file in ld:
+            if file.endswith(".png"):
+                img_total = img_total + 1
+        if self.data_limit is None:
+            self.data_len = img_total
+        elif img_total > self.data_limit:
+            self.data_len = self.data_limit
+        else:
+            self.data_len = img_total
+        logger.info(f"FFHQ data size:{self.data_len}")
+        data_pairs = np.empty([self.data_len], dtype=int).tolist()
+        idx = 0
+        for file in tqdm(ld): 
+            if file.endswith(".png"):
+                img_path = imgs_path+f"/{file}"
+                if idx < 1000 and not os.path.exists(img_path):
+                    logger.error(f"{img_path} not exists")
+                    return
+                if idx >= self.data_len:
+                    break
+                text = ''
+                data_pairs[idx] = [img_path, text]
+                idx = idx + 1
+        self.data_pairs = data_pairs
+        logger.info(f"FFHQ data preload done")
+    
+    def __len__(self):
+        return self.data_len
+
+    def __getitem__(self, idx):
+        img_path,text = self.data_pairs[idx]
+        image = Image.open(img_path)
+        img = image.copy()
+        image.close()
+        if self.transform:
+            img = self.transform(img)
+        item = {'image': img, 'text': ''} # img:torch.tensor c,h,w
+        return item
+
+class CELEBA_HQ(Dataset):
+    def __init__(self, dataset_path, dataset_sub_path='', phase='train', transform=None, target_transform=None, data_limit=None):
+        self.dataset_path = dataset_path
+        self.dataset_sub_path = dataset_sub_path # churches,bedrooms,cats
+        self.dataset = None
+        self.phase = phase # train validation test
+        self.data_len = 0
+        self.data_limit = data_limit
+        self.data_pairs = []
+        self.transform = transform
+        self.target_transform = target_transform
+        self.data_preload()
+    
+    def data_preload(self):
+        logger.info(f"CELEBA_HQ data preload start")
+        imgs_path = self.dataset_path
+        ld = os.listdir(imgs_path)
+        img_total = 0
+        for file in ld:
+            if file.endswith(".jpg"):
+                img_total = img_total + 1
+        if self.data_limit is None:
+            self.data_len = img_total
+        elif img_total > self.data_limit:
+            self.data_len = self.data_limit
+        else:
+            self.data_len = img_total
+        logger.info(f"CELEBA_HQ data size:{self.data_len}")
+        data_pairs = np.empty([self.data_len], dtype=int).tolist()
+        idx = 0
+        for file in tqdm(ld): 
+            if file.endswith(".jpg"):
+                img_path = imgs_path+f"/{file}"
+                if idx < 1000 and not os.path.exists(img_path):
+                    logger.error(f"{img_path} not exists")
+                    return
+                if idx >= self.data_len:
+                    break
+                text = ''
+                data_pairs[idx] = [img_path, text]
+                idx = idx + 1
+        self.data_pairs = data_pairs
+        logger.info(f"CELEBA_HQ data preload done")
+    
+    def __len__(self):
+        return self.data_len
+
+    def __getitem__(self, idx):
+        img_path,text = self.data_pairs[idx]
+        image = Image.open(img_path)
+        img = image.copy()
+        image.close()
+        if self.transform:
+            img = self.transform(img)
+        item = {'image': img, 'text': ''} # img:torch.tensor c,h,w
+        return item
 
 class LSUN(Dataset):
     def __init__(self, dataset_path, dataset_sub_path='', phase='train', transform=None, target_transform=None, data_limit=None):
@@ -206,29 +320,6 @@ class LSUN(Dataset):
         self.data_pairs = data_pairs
         logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload done")
     
-    # def data_preload(self):
-    #     logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload start")
-    #     imgs_path = options.base_path+f"output/datasets/lsun/{self.dataset_sub_path}_{self.phase}"
-    #     ld = os.listdir(imgs_path)
-    #     for file in ld:
-    #         if file.endswith(".webp"):
-    #             self.data_len = self.data_len + 1
-    #     logger.info(f"{self.dataset_sub_path}-{self.phase} data size:{self.data_len}")
-    #     gen = os.walk(imgs_path)
-    #     data_pairs = np.empty([self.data_len], dtype=int).tolist()
-    #     idx = 0
-    #     for path,dir_list,file_list in gen:
-    #         for file_name in tqdm(file_list): 
-    #             img_path = options.base_path+f"output/datasets/lsun/{self.dataset_sub_path}_{self.phase}/{file_name}"
-    #             if not os.path.exists(img_path):
-    #                 logger.error(f"{img_path} not exists")
-    #                 return
-    #             text = ''
-    #             data_pairs[idx] = [img_path, text]
-    #             idx = idx + 1
-    #     self.data_pairs = data_pairs
-    #     logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload done")
-    
     def __len__(self):
         return self.data_len
 
@@ -242,7 +333,6 @@ class LSUN(Dataset):
             img = img
         item = {'image': img, 'text': ''} # img:torch.tensor c,h,w
         return item
-    
     
 if __name__ == '__main__':
     # dataset = CIFAR10("cifar10",transform=transforms.Compose([
@@ -276,19 +366,63 @@ if __name__ == '__main__':
     #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     #     ]))
     
-    dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
-            transforms.Resize((256,256)),
-            transforms.RandomHorizontalFlip(),
-            # transforms.ToTensor(),
-            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]))
-    
+    dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
+                   dataset_sub_path='bedrooms',
+                   phase='train', 
+                   data_limit=5000,
+                   transform=transforms.Compose([
+                    transforms.Resize((256,256)),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                ]))
+            
     train_data = DataLoader(
-        dataset, batch_size=options.batch_size, shuffle=True, drop_last=True, pin_memory=True)
+        dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
     ToImg = transforms.ToPILImage()
     for data in train_data:
-        b,h,w,c = data['image'].shape
-        imgs = data['image'].view(b,c,h,w)
+        imgs = data['image']
+        b,c,h,w = imgs.shape
         img = ToImg(imgs[0])
         img.save("/home/yang/sda/github/fuzzydiffusion/output/img/loader.jpg")
-        
+    
+    # dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/FFHQ/', 
+    #                transform=transforms.Compose([
+    #                 transforms.Resize((256,256)),
+    #                 transforms.RandomHorizontalFlip(),
+    #                 transforms.ToTensor(),
+    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #             ]))
+    # train_data = DataLoader(
+    #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    # for data in train_data:
+    #     imgs = data['image']
+    #     print(imgs.shape)
+    
+    # dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256',
+    #                     # data_limit=5000, 
+    #                     transform=transforms.Compose([
+    #                         transforms.Resize((256,256)),
+    #                         transforms.RandomHorizontalFlip(),
+    #                         transforms.ToTensor(),
+    #                         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #                     ]))
+    # train_data = DataLoader(
+    #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    # for data in train_data:
+    #     imgs = data['image']
+    #     print(imgs.shape)
+    
+    # dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256',
+    #                     # data_limit=5000, 
+    #                     transform=transforms.Compose([
+    #                         transforms.Resize((256,256)),
+    #                         transforms.RandomHorizontalFlip(),
+    #                         transforms.ToTensor(),
+    #                         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #                     ]))
+    # train_data = DataLoader(
+    #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    # for data in train_data:
+    #     imgs = data['image']
+    #     print(imgs.shape)

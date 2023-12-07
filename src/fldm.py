@@ -1,17 +1,9 @@
-import datetime
-import copy
-import os
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
 import numpy as np
 
-import pytorch_lightning as pl
-from pytorch_lightning.utilities.distributed import rank_zero_only
-import lightning as L
-from lightning.pytorch.loggers import TensorBoardLogger, CSVLogger
 
 from loguru import logger
 from tqdm import tqdm
@@ -20,8 +12,6 @@ import csv
 from skimage.metrics import structural_similarity
 from omegaconf import OmegaConf
 
-
-import loralib as lora
 from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.util import instantiate_from_config,count_params
@@ -29,267 +19,181 @@ from ldm.modules.ema import LitEma
 from loader import LSUN
 from setting import options
 from metrics import Evaluator
+from utils import frozen_model
 
-class FuzzyDiffusion(pl.LightningModule):
-    def __init__(self, diffusion_model, rule_num):
+transform=transforms.Compose([
+                    transforms.Resize((256,256)),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                ])
+
+def load_delegates(delegate_path):
+    # load delegates of fuzzy system rule antecedent
+    delegates = []
+    with open(delegate_path, encoding='utf-8') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+        logger.info(f"csv {header}")
+        for row in reader:
+            img_path = row[0]
+            text = row[1]
+            img = Image.open(img_path)
+            img = transform(img)
+            delegates.append([img,text])
+    return delegates
+
+class MLP(nn.Module):
+    def __init__(self, input_size, output_size) -> None:
         super().__init__()
-        self.conditioning_key = diffusion_model.conditioning_key # DiffusionWrapper
-        assert self.conditioning_key in [None, 'concat', 'crossattn', 'hybrid', 'adm']
-        diffusion_models =[]
-        for _ in range(rule_num):
-            diffusion_models.append(copy.deepcopy(diffusion_model))
-        self.diffusion_models = nn.ModuleList(diffusion_models)
-        self.rule_num = rule_num
-        self.fires = []
-        for _ in range(rule_num):
-            self.fires.append(1/rule_num)
+        hidden_size = input_size
+        self.input_layer = nn.Linear(input_size, hidden_size)
+        self.hidden_layer = nn.Linear(hidden_size, hidden_size)
+        self.output_layer = nn.Linear(hidden_size, output_size)
+    def forward(self, input):
+        input_data = input
+        hidden_data = self.input_layer(input_data)
+        hidden_data = self.hidden_layer(hidden_data)
+        output_data = self.output_layer(hidden_data)
+        return output_data
     
-    def forward(self,  x, t, c_concat: list = None, c_crossattn: list = None):
-        x_fuzz = []
-        for i in range(self.rule_num):
-            diffusion_model = self.diffusion_models[i]
-            x_fuzz.append(diffusion_model(x, t, c_concat, c_crossattn))
-        x_recon = 0
-        for i in range(self.rule_num):
-            x_recon = x_recon + self.fires[i]*x_fuzz[i]
-        return x_recon
-    
-class FuzzyLatentDiffusion(LatentDiffusion):
-    def __init__(self, rule_num, delegates_path,*args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.rule_num = rule_num
-        unet = self.model.diffusion_model
-        lora.mark_only_lora_as_trainable(unet) # lora layers trainable
-        fdm = FuzzyDiffusion(self.model, rule_num)# fuzzy diffusion model
-        self.model = fdm
-        count_params(self.model, verbose=True)
-        if self.use_ema:
-            self.model_ema = LitEma(self.model)
-            logger.info(f"Keeping EMAs of {len(list(self.model_ema.buffers()))}.")
-        self.delegates = self.load_delegates(delegates_path)
-        self.fires = [] # membership
-        self.to_img = transforms.ToPILImage()
-        self.transform=transforms.Compose([
-            transforms.Resize((256,256)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ])
+class conv2d_bn(nn.Module):
+    def __init__(self, kernel_size):
+        super().__init__()
+        if kernel_size == 3:
+            self.conv = nn.Conv2d(4,4,kernel_size=kernel_size,stride=1,padding=1) 
+        elif kernel_size == 1:
+            self.conv = nn.Conv2d(4,4,kernel_size=kernel_size,stride=1) 
+        self.bn = nn.BatchNorm2d(num_features=4)
+        self.relu = nn.ReLU()
         
-    def load_delegates(self, delegate_path):
-        # load delegates of fuzzy system rule antecedent
-        delegates = []
-        with open(delegate_path, encoding='utf-8') as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            # print(headers)
-            for row in reader:
-                img_path = row[0]
-                img = Image.open(img_path)
-                img = np.array(img)
-                delegates.append(img)
-        return delegates
+    def forward(self, x):
+        output = self.conv(x)
+        output = self.bn(output)
+        output = self.relu(output)
+        return output
+
+
+class Inception(nn.Module):
+    def __init__(self, c, h, w):
+        super().__init__()
+        self.conv1=conv2d_bn(kernel_size=1)
+        
+        self.conv2a=conv2d_bn(kernel_size=1)
+        self.conv2b=conv2d_bn(kernel_size=3)
+        
+        self.avg_pool3=nn.AvgPool2d(kernel_size=3,stride=1, padding=1)
+        self.conv3=conv2d_bn(kernel_size=3)
+        
+        self.conv4a=conv2d_bn(kernel_size=1)
+        self.conv4b=conv2d_bn(kernel_size=3)
+        self.conv4c=conv2d_bn(kernel_size=3)
+        
+        input_size = h*w*4
+        output_size = h*w
+        # self.fc = nn.Linear(input_size, output_size)
+        self.fc = MLP(input_size, output_size)
+        
+    def forward(self,x):
+        x1=self.conv1(x)
+        # print(f"x1.shape:{x1.shape}")
+        
+        x2=self.conv2a(x)
+        x2=self.conv2b(x2)
+        # print(f"x2.shape:{x2.shape}")
+        
+        x3=self.avg_pool3(x)
+        x3= self.conv3(x3)
+        # print(f"x3.shape:{x3.shape}")
+        
+        x4 = self.conv4a(x)
+        x4 = self.conv4b(x4)
+        x4 = self.conv4c(x4)
+        # print(f"x4.shape:{x4.shape}")
+        
+        b, c, h, w = x.shape
+        x1 = x1.view(b, c,-1)
+        x2 = x2.view(b, c,-1)
+        x3 = x3.view(b, c,-1)
+        x4 = x4.view(b, c,-1)
+        
+        x_cat = torch.cat((x1,x2,x3,x4), dim = -1)
+        output = self.fc(x_cat).view(b,c,h,w)
+        return output
+
+class FuzzyLatentDiffusion(nn.Module):
+    def __init__(self, ldmodel, rule_num, img_shape, z_shape, delegates, condition=False) -> None:
+        super().__init__()
+        self.ldmodel = ldmodel
+        frozen_model(self.ldmodel)
+        self.ddim = DDIMSampler(self.ldmodel)
+        self.rule_num = rule_num
+        self.img_shape = img_shape
+        self.z_shape = z_shape # img shape of latent space
+        c,h,w = self.z_shape
+        self.kbmodel = nn.ModuleList([Inception(c,h,w) for _ in range(self.rule_num)])
+        self.fires = [] # membership
+        self.condition = condition
+        self.delegates = delegates #[img, text]
+        self.evaluator = Evaluator()
+        # self.sigmoid = nn.Sigmoid()
         
     def membership(self, x, delegate):
-        #numpy => h,w,c ; tensor => c,h,w
-        im1 = self.to_img(x).convert('L') # gray
-        im2 = Image.fromarray(delegate).convert('L') # gray
-        im1 = np.uint8(im1)
-        im2 = np.uint8(im2)
-        latent_ssim_score = structural_similarity(im1, im2)
+        # c,h,w
+        latent_ssim_score = self.evaluator.calc_ssim2(x, delegate)
         return latent_ssim_score
-    
+
     def antecedent(self, batch):
         # membership array
-        batch = batch['image']
         batch_size = len(batch)
-        u_arr = np.empty((self.rule_num),dtype=float)
-        for i in range(self.rule_num):
-            membership = 0
-            for j in range(batch_size):
-                membership = membership + self.membership(batch[j], self.delegates[i])
-            u_arr[i] = membership / batch_size
-        # normalization
-        max = np.max(u_arr,axis=0)
-        fires = u_arr/max
-        return fires
+        u_arr = torch.zeros([batch_size, self.rule_num])
+        for i in range(batch_size):
+            for j in range(self.rule_num):
+                delegate = self.delegates[j][0] ## image
+                delegate = delegate.to(options.device)
+                membership = self.membership(batch[i], delegate)
+                u_arr[i][j] = membership
+        fire = u_arr
+        return fire
     
-    def mkdir(self, path):
-        if not os.path.exists(path): 
-            os.makedirs(path)
-
-    def log_img_save(self, log, key, is_batch=False):
-        epoch = self.trainer.current_epoch
-        img_path = self.trainer.default_root_dir+f"/img/epoch_{epoch}/"
-        share_path = "/home/yang/sda/github/fuzzydiffusion/output/img/share/"
-        self.mkdir(img_path)
-        self.mkdir(share_path)
-        if not is_batch:
-            img = self.to_img(log[f'{key}'])
-            img.save(img_path+f'{key}.jpg')
-            img.save(share_path+f'{key}.jpg')
-        else:
-            inputs = log[f'{key}']
-            b,c,h,w = inputs.shape
-            if c > 4:
-                inputs = inputs.view(b,w,c,h)
-            for i in range(b):
-                img = self.to_img(inputs[i])
-                img.save(img_path+f'{key}_{i}.jpg')
-                img.save(share_path+f'{key}_{i}.jpg')
-
-    def log_img_local(self):
-        imgs = []
-        path = "/home/yang/sda/github/fuzzydiffusion/output/img/samples/lsun_churches.csv"
-        with open(path, encoding='utf-8') as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            # print(headers)
-            for row in reader:
-                img_path = row[0]
-                img = Image.open(img_path)
-                img = self.transform(img)
-                h,w,c = img.shape
-                imgs.append(img)
-        b = len(imgs)
-        images = torch.empty((b,h,w,c))
-        for i in range(b):
-            images[i] = imgs[i]
-        log = self.log_images({'image':images}, N=8)
-        # save valid images
-        self.log_img_save(log, 'inputs',is_batch=True)
-        self.log_img_save(log, 'reconstruction',is_batch=True)
-        self.log_img_save(log, 'diffusion_row')
-        self.log_img_save(log, 'samples',is_batch=True)
-        self.log_img_save(log, 'samples_inpainting',is_batch=True)
-        self.log_img_save(log, 'mask',is_batch=True)
-        self.log_img_save(log, 'samples_outpainting',is_batch=True)
-        self.log_img_save(log, 'progressive_row')
-
-    @rank_zero_only
-    @torch.no_grad()
-    def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        self.fires = self.antecedent(batch)
-        self.model.fires = self.fires
-        super().on_train_batch_start(batch, batch_idx, dataloader_idx)
-        
-    def on_train_batch_end(self, *args, **kwargs):
-        return super().on_train_batch_end(*args, **kwargs)
+    def knowledge_boost(self, batch, fire):
+        bs,c,h,w = batch.shape
+        rule_output = torch.empty([self.rule_num,bs,c,h,w]).to(options.device)
+        for r in range(self.rule_num):
+            rule_output[r] = self.kbmodel[r](batch)
+        output = torch.zeros([bs,c,h,w]).to(options.device)
+        for i in range(bs):
+            for r in range(self.rule_num):
+                output[i] =  output[i] + fire[i][r]*rule_output[r][i]
+        return output
     
-    def on_epoch_end(self) -> None:
-        epoch = self.trainer.current_epoch
-        path = self.trainer.default_root_dir+"/models/"
-        self.mkdir(path)
-        # self.trainer.save_checkpoint(path+f"epoch_{epoch}.ckpt")
-        torch.save(lora.lora_state_dict(self.model), path+f"epoch_{epoch}_lora.ckpt")
-        self.log_img_local()
-        return super().on_epoch_end()
-
-    def forward(self, x, c, *args, **kwargs):
-        return super().forward(x, c, *args, **kwargs)
-
-def config_learning_rate(model, model_config):
-    # configure learning rate
-    base_lr = model_config.base_learning_rate
-    model.learning_rate = base_lr
-    logger.info("++++ NOT USING LR SCALING ++++")
-    logger.info(f"Setting learning rate to {model.learning_rate:.2e}")
-
-def stat_parameter_number(model):
-    total_num = sum(p.numel() for p in model.parameters())
-    trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logger.info(f"Total: {total_num}, Trainable: {trainable_num}")
-
-def tensor_to_img(img_tensors):
-    imgs = []
-    toImg = transforms.ToPILImage()
-    for tensor in img_tensors:
-        img = toImg(tensor)
-        imgs.append(img)
-    return imgs
-
-def unconditional_train():
-    lsun_csv_path = "/home/yang/sda/github/fuzzydiffusion/output/img/lsun/lsun_churches.csv"
-    now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    root_path = options.base_path+'output/log/lsun_churches/'+now +'/'
-    ckpt_path = root_path + 'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.ckpt'
-    log_file = logger.add(root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
-    config = OmegaConf.load("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
-    model_config = config.pop("model", OmegaConf.create())
-    fld_model = instantiate_from_config(model_config).to(options.device)
-    config_learning_rate(fld_model, model_config)
-    stat_parameter_number(fld_model)
-    tb_logger = TensorBoardLogger(save_dir=root_path, name='tensor_board')
-    csv_logger = CSVLogger(save_dir=root_path, name='csv_logs', flush_logs_every_n_steps=1)
-    trainer = pl.Trainer(accelerator="gpu", #gpu
-                        devices=1, 
-                        max_epochs=5, #20
-                        logger=[tb_logger, csv_logger],
-                        log_every_n_steps=1,
-                        benchmark=True, 
-                        # max_steps= 10,
-                        default_root_dir=root_path)
-    dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
-            transforms.Resize((256,256)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]))
-    train_data = DataLoader(
-        dataset, batch_size=16, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
-    trainer.fit(fld_model, train_data)
-    trainer.save_checkpoint(ckpt_path)
-    logger.remove(log_file)
-
-def unconditional_test():
-    now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    root_path = options.base_path+'output/log/lsun_churches/'+now +'/'
-    log_file = logger.add(root_path+'fuzzy-latent-diffusion-'+str(datetime.date.today()) +'.log')
-    config = OmegaConf.load("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
-    model_config = config.pop("model", OmegaConf.create())
-    fld_model = instantiate_from_config(model_config).to(options.device)
-    # Then load the LoRA checkpoint
-    fld_model.load_state_dict(torch.load('/home/yang/sda/github/fuzzydiffusion/output/log/lsun_churches/2023-11-02T08-43-24/models/epoch_4_lora.ckpt'), strict=False)
-    config_learning_rate(fld_model, model_config)
-    stat_parameter_number(fld_model)
-    eval = Evaluator()
-    dataset = LSUN('lsun', 'churches','val', transform=transforms.Compose([
-            transforms.Resize((256,256)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]))
-    test_data = DataLoader(
-        dataset, batch_size=8, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
-    for batch in tqdm(test_data):
-        x = batch['image']
-        z = fld_model.get_input(batch, 'image')[0]
-
+    def forward(self, batch, latent_output=False):
+        ## x -> z -> z_rec -> z_fuzz -> x_fuzz
+        ## x -> x_p -> x_rec -> x_fuzz
+        x = batch['image'].to(options.device)
+        fire = self.antecedent(x)
+        b,c,h,w = x.shape
+        z = self.ldmodel.get_input(batch, 'image')[0]
+        t = torch.ones(b).long()*(self.ldmodel.num_timesteps -1)
+        t = t.to(options.device)
         z_start = z
-        t = torch.randint(0, fld_model.num_timesteps, (z_start.shape[0],), device=fld_model.device).long()
-        noise = torch.randn_like(z_start)
-        z_noisy = fld_model.q_sample(x_start=z_start, t=t, noise=noise)
-        ddim = DDIMSampler(fld_model.model)
-        shape = batch.shape
-        bs = shape[0]
-        shape = shape[1:]
-        samples, intermediates = ddim.sample(50, batch_size=bs, shape=shape, eta=1.0, verbose=False,x0=z_start, x_T=z_noisy)
-        z_rec = samples
-
-        x_rec = fld_model.decode_first_stage(z_rec)
-        real_imgs = tensor_to_img(x)
-        fake_imgs = tensor_to_img(x_rec)
-        fid = eval.calc_fid(real_imgs, fake_imgs)
-        logger.info(f"fid:{fid}")
-        precision,recall = eval.calc_preision_recall(real_imgs, fake_imgs)
-        logger.info(f"precision:{precision},recall:{recall}")
+        noise = torch.randn_like(z_start).to(options.device)
+        z_noisy = self.ldmodel.q_sample(x_start=z_start, t=t, noise=noise)
+        bs,c,h,w = z.shape
+        shape = (c,h,w)
+        samples, _ = self.ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
         
-    logger.remove(log_file)
-
-
-
+        z_rec = samples
+        z_fuzz = self.knowledge_boost(z_rec, fire)
+        x_rec = self.ldmodel.decode_first_stage(z_rec)
+        x_fuzz = self.ldmodel.decode_first_stage(z_fuzz)
+        if latent_output:
+            return x_fuzz, x_rec, z, z_rec, z_fuzz, fire
+        else:
+            return x_fuzz
+        
 if __name__ == '__main__':
-    # unconditional_train()
-    unconditional_test()
+    # # unconditional_train()
+    # unconditional_test()
+    print("done")
 
     

@@ -52,17 +52,3 @@ def setting_info():
     output += "drop_out: "+ str(options.unet.dropout)+", "
     output += "learning_rate: "+ str(options.learning_rate)
     return output
-
-def setup_seed(seed):
-    # https://zhuanlan.zhihu.com/p/462570775
-    torch.use_deterministic_algorithms(True) # 检查pytorch中有哪些不确定性
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    os.environ['PYTHONHASHSEED'] = str(seed)
-    os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"  # 大于CUDA 10.2 需要设置
-    logger.info("seed: %d, random:%.4f, torch random:%.4f, np random:%.4f" %(seed, random.random(), torch.rand(1), np.random.rand(1)))

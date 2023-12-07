@@ -89,11 +89,12 @@ class Evaluator(nn.Module):
         
 
     def calc_fid(self, real_imgs, fake_imgs):
-        real_imgs = self.resize299(real_imgs)
-        fake_imgs = self.resize299(fake_imgs)
+        # real_imgs = self.resize299(real_imgs)
+        # fake_imgs = self.resize299(fake_imgs)
         self.fid_metrics.update(real_imgs, real=True)
         self.fid_metrics.update(fake_imgs, real=False)
         fid_score = float(self.fid_metrics.compute())
+        # self.fid_metrics.reset()
         return round(fid_score,2)
     
     def calc_mifid(self, real_imgs, fake_imgs):
@@ -130,6 +131,13 @@ class Evaluator(nn.Module):
     def calc_ssim(self, real_imgs, fake_imgs):
         ssim = self.ssim_metrics(real_imgs, fake_imgs)
         return round(ssim.item(),2)
+    
+    def calc_ssim2(self, real_img, fake_img):
+        c,h,w = real_img.shape
+        real_imgs = real_img.view(1,c,h,w)
+        fake_imgs = fake_img.view(1,c,h,w)
+        ssim = self.ssim_metrics(real_imgs, fake_imgs)
+        return ssim
     
     def calc_clip(self, images, prompts):
         b = len(images)
