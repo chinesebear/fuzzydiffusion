@@ -4,6 +4,7 @@ import random
 import torch
 import torch.nn as nn
 import torch
+from torch.optim.lr_scheduler import _LRScheduler
 from torchvision import transforms
 
 import numpy as np
@@ -169,9 +170,8 @@ def csv_record(path, data):
             write.writerow(row)
 
 def csv_dist_record(path, data):
-    header = ['x', 'z', 'z_rec',
-              'x_rec','x_p','x_fuzz','x_norm', 
-              "x_p_norm","x_rec_norm",'x_fuzz_norm']
+    header = ['x', 'z','x_p','x_fuzz','x_norm', 
+              "x_p_norm",'x_fuzz_norm']
     row_data = []
     for name in header:
         row_data.append(data[name])
@@ -190,3 +190,50 @@ def csv_dist_record(path, data):
             for d in row_data:
                 row.append(f"{round(d.mean().item(),2)}/{round(d.std().item(),2)}")
             write.writerow(row)
+            
+
+class GradualWarmupScheduler(_LRScheduler):
+    def __init__(self, optimizer, multiplier, warm_epoch, after_scheduler=None):
+        self.multiplier = multiplier
+        self.total_epoch = warm_epoch
+        self.after_scheduler = after_scheduler
+        self.finished = False
+        self.last_epoch = None
+        self.base_lrs = None
+        super().__init__(optimizer)
+
+    def get_lr(self):
+        if self.last_epoch > self.total_epoch:
+            if self.after_scheduler:
+                if not self.finished:
+                    self.after_scheduler.base_lrs = [base_lr * self.multiplier for base_lr in self.base_lrs]
+                    self.finished = True
+                return self.after_scheduler.get_lr()
+            return [base_lr * self.multiplier for base_lr in self.base_lrs]
+        return [base_lr * ((self.multiplier - 1.) * self.last_epoch / self.total_epoch + 1.) for base_lr in self.base_lrs]
+
+
+    def step(self, epoch=None, metrics=None):
+        if self.finished and self.after_scheduler:
+            if epoch is None:
+                self.after_scheduler.step(None)
+            else:
+                self.after_scheduler.step(epoch - self.total_epoch)
+        else:
+            return super(GradualWarmupScheduler, self).step(epoch)
+        
+def extract(v, t, x_shape):
+    """
+    Extract some coefficients at specified timesteps, then reshape to
+    [batch_size, 1, 1, 1, 1, ...] for broadcasting purposes.
+    """
+    device = t.device
+    out = torch.gather(v, index=t, dim=0).float().to(device)
+    return out.view([t.shape[0]] + [1] * (len(x_shape) - 1))
+
+def check_dir(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        logger.info(f"create dir: {path}")
+    else:
+        logger.info(f"dir exists, {path}")

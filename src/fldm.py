@@ -1,7 +1,10 @@
+import copy
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import torch.nn.functional as F
 import numpy as np
 
 
@@ -19,7 +22,8 @@ from ldm.modules.ema import LitEma
 from loader import LSUN
 from setting import options
 from metrics import Evaluator
-from utils import frozen_model
+from utils import frozen_model,activate_model,save_model,\
+                csv_record,GradualWarmupScheduler,extract
 
 transform=transforms.Compose([
                     transforms.Resize((256,256)),
@@ -121,21 +125,36 @@ class Inception(nn.Module):
         return output
 
 class FuzzyLatentDiffusion(nn.Module):
-    def __init__(self, ldmodel, rule_num, img_shape, z_shape, delegates, condition=False) -> None:
+    def __init__(self, ldmodel, rule_num, img_shape, z_shape, delegates,beta_1, beta_T, T, root_path, condition=False) -> None:
         super().__init__()
         self.ldmodel = ldmodel
-        frozen_model(self.ldmodel)
-        self.ddim = DDIMSampler(self.ldmodel)
+        frozen_model(ldmodel)
         self.rule_num = rule_num
         self.img_shape = img_shape
         self.z_shape = z_shape # img shape of latent space
-        c,h,w = self.z_shape
-        self.kbmodel = nn.ModuleList([Inception(c,h,w) for _ in range(self.rule_num)])
+        unet = ldmodel.model
+        self.rule_models = nn.ModuleList([copy.deepcopy(unet) for _ in range(self.rule_num)])
         self.fires = [] # membership
         self.condition = condition
         self.delegates = delegates #[img, text]
         self.evaluator = Evaluator()
         # self.sigmoid = nn.Sigmoid()
+        self.init_trainer(beta_1, beta_T, T)
+        self.root_path = root_path
+    
+    def init_trainer(self, beta_1, beta_T, T):
+        self.T = T
+
+        self.register_buffer(
+            'betas', torch.linspace(beta_1, beta_T, T).double())
+        alphas = 1. - self.betas
+        alphas_bar = torch.cumprod(alphas, dim=0)
+
+        # calculations for diffusion q(x_t | x_{t-1}) and others
+        self.register_buffer(
+            'sqrt_alphas_bar', torch.sqrt(alphas_bar))
+        self.register_buffer(
+            'sqrt_one_minus_alphas_bar', torch.sqrt(1. - alphas_bar))
         
     def membership(self, x, delegate):
         # c,h,w
@@ -155,45 +174,97 @@ class FuzzyLatentDiffusion(nn.Module):
         fire = u_arr
         return fire
     
-    def knowledge_boost(self, batch, fire):
-        bs,c,h,w = batch.shape
-        rule_output = torch.empty([self.rule_num,bs,c,h,w]).to(options.device)
-        for r in range(self.rule_num):
-            rule_output[r] = self.kbmodel[r](batch)
-        output = torch.zeros([bs,c,h,w]).to(options.device)
-        for i in range(bs):
-            for r in range(self.rule_num):
-                output[i] =  output[i] + fire[i][r]*rule_output[r][i]
-        return output
-    
-    def forward(self, batch, latent_output=False):
-        ## x -> z -> z_rec -> z_fuzz -> x_fuzz
-        ## x -> x_p -> x_rec -> x_fuzz
+    def fuzzy_sampler(self, batch, latent_output=False):
         x = batch['image'].to(options.device)
         fire = self.antecedent(x)
-        b,c,h,w = x.shape
         z = self.ldmodel.get_input(batch, 'image')[0]
-        t = torch.ones(b).long()*(self.ldmodel.num_timesteps -1)
+        bs,c,h,w = z.shape
+        t = torch.ones(bs).long()*(self.ldmodel.num_timesteps -1)
         t = t.to(options.device)
+        
         z_start = z
         noise = torch.randn_like(z_start).to(options.device)
         z_noisy = self.ldmodel.q_sample(x_start=z_start, t=t, noise=noise)
-        bs,c,h,w = z.shape
-        shape = (c,h,w)
-        samples, _ = self.ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
         
-        z_rec = samples
-        z_fuzz = self.knowledge_boost(z_rec, fire)
-        x_rec = self.ldmodel.decode_first_stage(z_rec)
+        shape = (c,h,w)
+        rule_output = torch.empty([self.rule_num, bs, c, h, w]).to(options.device)
+        for r in range(self.rule_num):
+            self.ldmodel.model = self.rule_models[r]
+            ddim = DDIMSampler(self.ldmodel)
+            samples, _ = ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
+            rule_output[r] = samples
+        
+        rule_idx = fire.argmax(dim=-1)
+        z_fuzz = torch.empty([bs, c, h, w]).to(options.device)
+        for i in range(bs):
+            r = rule_idx[i].item()
+            z_fuzz[i] = rule_output[r][i]
+            
         x_fuzz = self.ldmodel.decode_first_stage(z_fuzz)
+        
         if latent_output:
-            return x_fuzz, x_rec, z, z_rec, z_fuzz, fire
+            return x, z, z_fuzz, x_fuzz, fire
+        return x_fuzz
+            
+    def fuzzy_trainer(self, train_data, epoch):
+        logger.info(f"rule_models epoch{epoch} rules{self.rule_num} train start")
+        for r in range(self.rule_num):
+            logger.info(f"rule{r+1} train start")
+            consequent_model = self.rule_models[r]
+            activate_model(consequent_model)
+            optimizer = torch.optim.Adam(consequent_model.parameters(), lr=options.learning_rate, weight_decay=1e-4)
+            cosineScheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=epoch, eta_min=0, last_epoch=-1)
+            warmUpScheduler = GradualWarmupScheduler(optimizer=optimizer, multiplier=2.0, warm_epoch=epoch // 10, after_scheduler=cosineScheduler)
+            for e in tqdm(range(epoch), f"rule{r+1} train"):
+                batch_count = 0
+                for batch in train_data:
+                    x = batch['image'].to(options.device)
+                    fire = self.antecedent(x).to(options.device)
+                    z = self.ldmodel.get_input(batch, 'image')[0]
+                    z_rule = torch.zeros_like(z)
+                    rule_idx = fire.argmax(dim=-1)
+                    offset = 0
+                    for i in range(len(x)):
+                        # train rule consequent
+                        if rule_idx[i].item() !=  r:
+                            continue
+                        z_rule[offset] = z[i]
+                        offset = offset + 1
+                    if offset == 0:
+                        continue
+                    
+                    optimizer.zero_grad()
+                    t = torch.randint(self.T, size=(z_rule.shape[0], ), device=z_rule.device)
+                    noise = torch.randn_like(z_rule)
+                    z_rule_t = (
+                        extract(self.sqrt_alphas_bar, t, z.shape) * z +
+                        extract(self.sqrt_one_minus_alphas_bar, t, z.shape) * noise)
+                    loss = F.mse_loss(consequent_model(z_rule_t, t), noise, reduction='none').mean()
+                    loss.backward()
+                    grad_clip = 1.0
+                    torch.nn.utils.clip_grad_norm_(consequent_model.parameters(), grad_clip)
+                    optimizer.step()
+                
+                    batch_count = batch_count + 1
+                    csv_record(self.root_path+f"loss_rule_{r+1}.csv", {'epoch': f"{e}",'batch': f"{batch_count}",'loss': f"{loss.item()}"})
+                    if batch_count % 10 == 0:
+                        logger.info(f"rule:{r+1}, epoch:{e}, batch:{batch_count}, loss:{round(loss.item(), 2)}")
+                warmUpScheduler.step()
+            frozen_model(consequent_model)
+            logger.info(f"rule_models rule{r+1} train done")
+        logger.info(f"rule_models epoch{epoch} rules{self.rule_num} train done")
+        # save_model(self.rule_models, self.root_path+f"epoch_{epoch}_rules_{self.rule_num}_.pt")
+    
+    def forward(self, batch, latent_output=False):
+        ## x -> z -> z_fuzz -> x_fuzz
+        ## x -> x_p -> x_fuzz
+        x, z, z_fuzz, x_fuzz, fire = self.fuzzy_sampler(batch,latent_output)
+        if latent_output:
+            return x, z, z_fuzz, x_fuzz, fire
         else:
             return x_fuzz
         
 if __name__ == '__main__':
-    # # unconditional_train()
-    # unconditional_test()
     print("done")
 
     
