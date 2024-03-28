@@ -126,7 +126,17 @@ def combine_imgs4(x1, x2, x3, x4):
  
     # 保存图片
     result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test4.jpg")
- 
+    
+def combing_imgs(img_arr):
+    col_num, row_num ,c,h,w = img_arr.shape
+    result = Image.new('RGB', (w*col_num, h*row_num))
+    for i in range(col_num):
+        imgs = tensor_to_img(img_arr[i])
+        for j in range(row_num):
+             result.paste(imgs[i], box=(i*w, j*h))
+    # 保存图片
+    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/combine.jpg")
+                
 def metrics_fig(name, data):
     xmax = len(data)
     xpoints = np.arange(xmax)

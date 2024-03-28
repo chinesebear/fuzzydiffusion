@@ -40,10 +40,11 @@ def load_delegates(delegate_path):
         logger.info(f"csv {header}")
         for row in reader:
             img_path = row[0]
-            text = row[1]
+            # text = row[1]
             img = Image.open(img_path)
             img = transform(img)
-            delegates.append([img,text])
+            delegates.append(img)
+            # delegates.append([img,text])
     return delegates
 
 class MLP(nn.Module):
@@ -167,7 +168,7 @@ class FuzzyLatentDiffusion(nn.Module):
         u_arr = torch.zeros([batch_size, self.rule_num])
         for i in range(batch_size):
             for j in range(self.rule_num):
-                delegate = self.delegates[j][0] ## image
+                delegate = self.delegates[j] ## image
                 delegate = delegate.to(options.device)
                 membership = self.membership(batch[i], delegate)
                 u_arr[i][j] = membership
@@ -214,10 +215,10 @@ class FuzzyLatentDiffusion(nn.Module):
             activate_model(consequent_model)
             optimizer = torch.optim.Adam(consequent_model.parameters(), lr=options.learning_rate, weight_decay=1e-4)
             cosineScheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=epoch, eta_min=0, last_epoch=-1)
-            warmUpScheduler = GradualWarmupScheduler(optimizer=optimizer, multiplier=2.0, warm_epoch=epoch // 10, after_scheduler=cosineScheduler)
+            warmUpScheduler = GradualWarmupScheduler(optimizer=optimizer, multiplier=2.0, warm_epoch=epoch, after_scheduler=cosineScheduler)
             for e in tqdm(range(epoch), f"rule{r+1} train"):
                 batch_count = 0
-                for batch in train_data:
+                for batch in tqdm(train_data, f"epoch{e}"):
                     x = batch['image'].to(options.device)
                     fire = self.antecedent(x).to(options.device)
                     z = self.ldmodel.get_input(batch, 'image')[0]
@@ -247,8 +248,8 @@ class FuzzyLatentDiffusion(nn.Module):
                 
                     batch_count = batch_count + 1
                     csv_record(self.root_path+f"loss_rule_{r+1}.csv", {'epoch': f"{e}",'batch': f"{batch_count}",'loss': f"{loss.item()}"})
-                    if batch_count % 10 == 0:
-                        logger.info(f"rule:{r+1}, epoch:{e}, batch:{batch_count}, loss:{round(loss.item(), 2)}")
+                    # if batch_count % 10 == 0:
+                    #     logger.info(f"rule:{r+1}, epoch:{e}, batch:{batch_count}, loss:{round(loss.item(), 2)}")
                 warmUpScheduler.step()
             frozen_model(consequent_model)
             logger.info(f"rule_models rule{r+1} train done")

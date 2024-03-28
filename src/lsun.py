@@ -27,15 +27,12 @@ from utils import setup_seed,load_model,save_model,frozen_model,\
 
 
 
-def lsun_train(dataset_name, config_path):
+def lsun_train(dataset_name, config_path, delegate_path, rule_num):
     setup_seed(10)
     batch_size = 32
-    sample_batch_limit = None
     img_shape = (3,256,256)
     z_shape = (4,32,32)
-    rule_num = 3
-    epoch = 20 #20
-    step = 10
+    epoch = 20
     beta_1 = 0.0015 # 1e-4
     beta_T= 0.0155 # 0.02
     T = 1000
@@ -50,7 +47,7 @@ def lsun_train(dataset_name, config_path):
     config = OmegaConf.load(config_path)
     model_config = config.pop("model", OmegaConf.create())
     ldmodel = instantiate_from_config(model_config).to(options.device)
-    delegates = load_delegates("/home/yang/sda/github/fuzzydiffusion/output/img/lsun/lsun_churches.csv")
+    delegates = load_delegates(delegate_path)
     fldmodel = FuzzyLatentDiffusion(ldmodel,
                                     rule_num,
                                     img_shape,
@@ -66,7 +63,6 @@ def lsun_train(dataset_name, config_path):
     dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
                    dataset_sub_path=dataset_name,
                    phase='train', 
-                   data_limit= sample_batch_limit,
                    transform=transforms.Compose([
                     transforms.Resize((256,256)),
                     # transforms.RandomHorizontalFlip(),
@@ -76,9 +72,10 @@ def lsun_train(dataset_name, config_path):
                 ]))
     train_data = DataLoader(
         dataset, batch_size=batch_size, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
-   
-    fldmodel.fuzzy_trainer(train_data, epoch)
-    save_model(fldmodel, model_path+f"fldm_lsun_{dataset_name}_epoch_{epoch}_rules_{rule_num}.pt")
+    
+    # if not os.path.exists(model_path+f"fldm_lsun_{dataset_name}_epoch_{epoch}_rules_{rule_num}.pt"):
+    #     fldmodel.fuzzy_trainer(train_data, epoch)
+    #     save_model(fldmodel, model_path+f"fldm_lsun_{dataset_name}_epoch_{epoch}_rules_{rule_num}.pt")
 
     logger.info("lsun test start")
     lsun_test(dataset_name, fldmodel, root_path)
@@ -86,15 +83,16 @@ def lsun_train(dataset_name, config_path):
     logger.remove(log_file)
 
 def lsun_test(dataset_name, fldmodel, root_path):
+    fldmodel.eval()
+    frozen_model(fldmodel)
     log_file = logger.add(root_path+'fuzzy-latent-diffusion-test-'+str(datetime.date.today()) +'.log')
-    metrics_csv_path = root_path+'metrics-'+str(datetime.date.today()) +'.csv'
+    metrics_csv_path = root_path+f'lsun_{dataset_name}_{fldmodel.rule_num}rules_metrics-'+str(datetime.date.today()) +'.csv'
     dist_csv_path = root_path+'distribution-'+str(datetime.date.today()) +'.csv'
     
-    eval = Evaluator()
+    eval = Evaluator(torch.device("cpu"))
     dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
                    dataset_sub_path=dataset_name,
                    phase='train', 
-                   data_limit= 6400,
                    transform=transforms.Compose([
                     transforms.Resize((256,256)),
                     # transforms.RandomHorizontalFlip(),
@@ -122,9 +120,9 @@ def lsun_test(dataset_name, fldmodel, root_path):
     met_data['ssim_m'] = []
     met_data['precision_m'] = []
     met_data['recall_m'] = []
-    
-    count = 0
-    for batch in tqdm(test_data):
+
+    for i in tqdm(range(200)): # 200*32 = 6400
+        batch = next(iter(test_data))
         x = batch['image'].cuda()
         x, z, z_fuzz, x_fuzz, fire = fldmodel(batch,latent_output=True)
         
@@ -147,9 +145,8 @@ def lsun_test(dataset_name, fldmodel, root_path):
         csv_dist_record(dist_csv_path, distributions)
         combine_imgs3(x_norm, x_p_norm,x_fuzz_norm)
         
-        count = count + 1
-        real_imgs = x_norm
-        gen_imgs = x_fuzz_norm
+        real_imgs = x_p_norm.cpu()
+        gen_imgs = x_fuzz_norm.cpu()
         fid = eval.calc_fid(real_imgs, gen_imgs)
         _is = eval.calc_is(gen_imgs)
         mifid = eval.calc_mifid(real_imgs, gen_imgs)
@@ -198,4 +195,11 @@ def lsun_test(dataset_name, fldmodel, root_path):
     logger.remove(log_file)
     
 if __name__ == '__main__':
-    lsun_train('churches', "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
+    # lsun_train('churches', 
+    #            "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml",
+    #            "/home/yang/sda/github/fuzzydiffusion/output/delegates/lsun_church/lsun_church_3_delegates.csv",
+    #            3)
+    lsun_train('bedrooms', 
+               "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml",
+               "/home/yang/sda/github/fuzzydiffusion/output/delegates/lsun_bedroom/lsun_bedroom_3_delegates.csv",
+               3)

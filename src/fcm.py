@@ -17,7 +17,7 @@ import csv
 from collections import Counter
 
 from setting import options
-from  loader import LSUN
+from  loader import LSUN, FFHQ,CELEBA_HQ
 from metrics import Evaluator
 from utils import check_dir
 
@@ -144,25 +144,49 @@ def get_delegates(train_data_loader, name, delegate_num_list):
                 writer.writerow([path])
 
 if __name__ == "__main__":
-    dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
-                    transforms.Resize((256,256)),
-                    # transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                ]),
-                data_limit=None)
-    train_data_loader = DataLoader(
-        dataset, batch_size=10, shuffle=True, drop_last=True, pin_memory=True)
-    get_delegates(train_data_loader,"lsun_church", [2,3,4,5,6,7,8,9,10])
+    # dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
+    #                 transforms.Resize((256,256)),
+    #                 # transforms.RandomHorizontalFlip(),
+    #                 transforms.ToTensor(),
+    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #             ]),
+    #             data_limit=None)
+    # train_data_loader = DataLoader(
+    #     dataset, batch_size=10, shuffle=True, drop_last=True, pin_memory=True)
+    # get_delegates(train_data_loader,"lsun_church", [2,3,4,5,6,7,8,9,10])
 
     
-    dataset = LSUN('lsun', 'bedrooms','train', transform=transforms.Compose([
+    # dataset = LSUN('lsun', 'bedrooms','train', transform=transforms.Compose([
+    #                 transforms.Resize((256,256)),
+    #                 # transforms.RandomHorizontalFlip(),
+    #                 transforms.ToTensor(),
+    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #             ]),
+    #             data_limit=None)
+    # train_data_loader = DataLoader(
+    #     dataset, batch_size=10, shuffle=True, drop_last=True, pin_memory=True)
+    # get_delegates(train_data_loader,"lsun_bedroom", [2,3,4,5,6,7,8,9,10])
+    
+    # dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/FFHQ/', 
+    #                transform=transforms.Compose([
+    #                 transforms.Resize((256,256)),
+    #                 transforms.RandomHorizontalFlip(),
+    #                 transforms.ToTensor(),
+    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #             ]))
+    # train_data_loader = DataLoader(
+    #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    # get_delegates(train_data_loader,"ffhq", [2,3,4,5,6,7,8,9,10])
+    
+    dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256', 
+                   transform=transforms.Compose([
                     transforms.Resize((256,256)),
-                    # transforms.RandomHorizontalFlip(),
+                    transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                ]),
-                data_limit=None)
+                ]))
     train_data_loader = DataLoader(
-        dataset, batch_size=10, shuffle=True, drop_last=True, pin_memory=True)
-    get_delegates(train_data_loader,"lsun_bedroom", [2,3,4,5,6,7,8,9,10])
+        dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    get_delegates(train_data_loader,"celeba_hq", [2,3,4,5,6,7,8,9,10])
+    
+    print('done')

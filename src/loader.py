@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import torch
-from torchtext.data import get_tokenizer
+# from torchtext.data import get_tokenizer
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -366,25 +366,25 @@ if __name__ == '__main__':
     #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     #     ]))
     
-    dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
-                   dataset_sub_path='bedrooms',
-                   phase='train', 
-                   data_limit=5000,
-                   transform=transforms.Compose([
-                    transforms.Resize((256,256)),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                ]))
+    # dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
+    #                dataset_sub_path='bedrooms',
+    #                phase='train', 
+    #                data_limit=5000,
+    #                transform=transforms.Compose([
+    #                 transforms.Resize((256,256)),
+    #                 transforms.RandomHorizontalFlip(),
+    #                 transforms.ToTensor(),
+    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #             ]))
             
-    train_data = DataLoader(
-        dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
-    ToImg = transforms.ToPILImage()
-    for data in train_data:
-        imgs = data['image']
-        b,c,h,w = imgs.shape
-        img = ToImg(imgs[0])
-        img.save("/home/yang/sda/github/fuzzydiffusion/output/img/loader.jpg")
+    # train_data = DataLoader(
+    #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    # ToImg = transforms.ToPILImage()
+    # for data in train_data:
+    #     imgs = data['image']
+    #     b,c,h,w = imgs.shape
+    #     img = ToImg(imgs[0])
+    #     img.save("/home/yang/sda/github/fuzzydiffusion/output/img/loader.jpg")
     
     # dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/FFHQ/', 
     #                transform=transforms.Compose([
@@ -426,3 +426,4 @@ if __name__ == '__main__':
     # for data in train_data:
     #     imgs = data['image']
     #     print(imgs.shape)
+    print("done")
