@@ -178,6 +178,9 @@ class FuzzyLatentDiffusion(nn.Module):
     def fuzzy_sampler(self, batch, latent_output=False):
         x = batch['image'].to(options.device)
         fire = self.antecedent(x)
+        if 'caption' in batch.keys():
+            prompts=batch['caption']
+            cond = self.ldmodel.get_learned_conditioning(prompts)
         z = self.ldmodel.get_input(batch, 'image')[0]
         bs,c,h,w = z.shape
         t = torch.ones(bs).long()*(self.ldmodel.num_timesteps -1)
@@ -192,7 +195,13 @@ class FuzzyLatentDiffusion(nn.Module):
         for r in range(self.rule_num):
             self.ldmodel.model = self.rule_models[r]
             ddim = DDIMSampler(self.ldmodel)
-            samples, _ = ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
+            if 'caption' in batch.keys():
+                ucond = self.ldmodel.get_learned_conditioning(bs * [""])
+                samples, _ = ddim.sample(50, batch_size=bs, shape=shape, conditioning=cond, eta=0.0, verbose=False,
+                                         unconditional_guidance_scale=100.0,
+                                         unconditional_conditioning=ucond)
+            else:
+                samples, _ = ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
             rule_output[r] = samples
         
         rule_idx = fire.argmax(dim=-1)
@@ -221,7 +230,10 @@ class FuzzyLatentDiffusion(nn.Module):
                 for batch in tqdm(train_data, f"epoch{e}"):
                     x = batch['image'].to(options.device)
                     fire = self.antecedent(x).to(options.device)
-                    z = self.ldmodel.get_input(batch, 'image')[0]
+                    if 'caption' in batch.keys():
+                        z,c = self.ldmodel.get_input(batch, 'image', force_c_encode=True, cond_key='caption')
+                    else:
+                        z = self.ldmodel.get_input(batch, 'image')[0]
                     z_rule = torch.zeros_like(z)
                     rule_idx = fire.argmax(dim=-1)
                     offset = 0
@@ -240,7 +252,10 @@ class FuzzyLatentDiffusion(nn.Module):
                     z_rule_t = (
                         extract(self.sqrt_alphas_bar, t, z.shape) * z +
                         extract(self.sqrt_one_minus_alphas_bar, t, z.shape) * noise)
-                    loss = F.mse_loss(consequent_model(z_rule_t, t), noise, reduction='none').mean()
+                    if 'caption' in batch.keys():
+                        loss = F.mse_loss(consequent_model(z_rule_t, t, c_crossattn=(c,)), noise, reduction='none').mean()
+                    else:
+                        loss = F.mse_loss(consequent_model(z_rule_t, t), noise, reduction='none').mean()
                     loss.backward()
                     grad_clip = 1.0
                     torch.nn.utils.clip_grad_norm_(consequent_model.parameters(), grad_clip)

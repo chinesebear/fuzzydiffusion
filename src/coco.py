@@ -16,14 +16,14 @@ from ldm.models.diffusion.ddpm import LatentDiffusion
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.util import instantiate_from_config,count_params
 from ldm.modules.ema import LitEma
-from loader import LSUN,FFHQ,CELEBA_HQ
+from loader import LSUN,FFHQ,CELEBA_HQ,COCO
 from setting import options
 from metrics import Evaluator
 from fldm import FuzzyLatentDiffusion,load_delegates
 from utils import setup_seed,load_model,save_model,frozen_model,\
     activate_model,stat_model_param,csv_dist_record,metrics_mean,\
     combine_imgs3,combine_imgs2,csv_record,metrics_fig,img_norm,\
-    combine_imgs4,GradualWarmupScheduler,check_dir
+    combine_imgs4,GradualWarmupScheduler,check_dir,combine_imgs5,combine_imgs5_with_prompt
 
 
 
@@ -37,7 +37,7 @@ def coco_train(config_path, delegate_path, rule_num):
     beta_T= 0.0155 # 0.02
     T = 1000
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    root_path = options.base_path+f'output/log/celeba_hq/'+now +'/'
+    root_path = options.base_path+f'output/log/coco/'+now +'/'
     model_path = options.base_path+ f"output/pth/"
     log_file = logger.add(root_path+'fuzzy-latent-diffusion-train-'+str(datetime.date.today()) +'.log')
     check_dir(root_path)
@@ -60,7 +60,7 @@ def coco_train(config_path, delegate_path, rule_num):
     frozen_model(fldmodel)
     stat_model_param(fldmodel, "fldmodel")
     
-    dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq', 
+    dataset = COCO('ChristophSchuhmann/MS_COCO_2017_URL_TEXT', 
                    phase='train', 
                    transform=transforms.Compose([
                     transforms.Resize((256,256)),
@@ -72,24 +72,24 @@ def coco_train(config_path, delegate_path, rule_num):
     train_data = DataLoader(
         dataset, batch_size=batch_size, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
     
-    # if not os.path.exists(model_path+f"fldm_ffhq_epoch_{epoch}_rules_{rule_num}.pt"):
+    # if not os.path.exists(model_path+f"fldm_coco_epoch_{epoch}_rules_{rule_num}.pt"):
     #     fldmodel.fuzzy_trainer(train_data, epoch)
-    #     save_model(fldmodel, model_path+f"fldm_ffhq_epoch_{epoch}_rules_{rule_num}.pt")
+    #     save_model(fldmodel, model_path+f"fldm_coco_epoch_{epoch}_rules_{rule_num}.pt")
 
-    logger.info("celeba_hq test start")
-    celeba_hq_test(fldmodel, root_path)
-    logger.info("celeba_hq test done")
+    logger.info("coco test start")
+    coco_test(fldmodel, root_path)
+    logger.info("coco test done")
     logger.remove(log_file)
 
-def celeba_hq_test(fldmodel, root_path):
+def coco_test(fldmodel, root_path):
     fldmodel.eval()
     frozen_model(fldmodel)
     log_file = logger.add(root_path+'fuzzy-latent-diffusion-test-'+str(datetime.date.today()) +'.log')
-    metrics_csv_path = root_path+f'celeba_hq_{fldmodel.rule_num}rules_metrics-'+str(datetime.date.today()) +'.csv'
+    metrics_csv_path = root_path+f'coco_{fldmodel.rule_num}rules_metrics-'+str(datetime.date.today()) +'.csv'
     dist_csv_path = root_path+'distribution-'+str(datetime.date.today()) +'.csv'
     
     eval = Evaluator(torch.device("cpu"))
-    dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256',
+    dataset = COCO('ChristophSchuhmann/MS_COCO_2017_URL_TEXT',
                    phase='train', 
                    transform=transforms.Compose([
                     transforms.Resize((256,256)),
@@ -113,16 +113,21 @@ def celeba_hq_test(fldmodel, root_path):
     met_data['ssim'] = []
     met_data['precision'] = []
     met_data['recall'] = []
+    met_data['clip'] = []
     met_data['psnr_m'] = []
     met_data['ms_ssim_m'] = []
     met_data['ssim_m'] = []
     met_data['precision_m'] = []
     met_data['recall_m'] = []
 
-    for i in tqdm(range(200)): # 2000*32 = 64000
+    for i in tqdm(range(200)): # 200*32 = 6400
         batch = next(iter(test_data))
+        cond = batch['caption']
         x = batch['image'].cuda()
-        x, z, z_fuzz, x_fuzz, fire = fldmodel(batch,latent_output=True)
+        x_samples = [x]
+        for _ in range(4):
+            x, z, z_fuzz, x_fuzz, fire = fldmodel(batch,latent_output=True)
+            x_samples.append(x_fuzz)
         
         x_p = fldmodel.ldmodel.decode_first_stage(z)
         
@@ -141,7 +146,13 @@ def celeba_hq_test(fldmodel, root_path):
         distributions['x_p_norm'] = x_p_norm
         distributions['x_fuzz_norm'] = x_fuzz_norm
         csv_dist_record(dist_csv_path, distributions)
-        combine_imgs3(x_norm, x_p_norm,x_fuzz_norm)
+        # combine_imgs3(x_norm, x_p_norm,x_fuzz_norm)
+        x_sample_norm = []
+        for x_sample in x_samples:
+            x_sample_norm.append(sigmoid(x_sample))
+        combine_imgs5_with_prompt(x_sample_norm[0],x_sample_norm[1],
+                      x_sample_norm[2],x_sample_norm[3],
+                      x_sample_norm[4], cond)
         
         real_imgs = x_p_norm.cpu()
         gen_imgs = x_fuzz_norm.cpu()
@@ -168,6 +179,10 @@ def celeba_hq_test(fldmodel, root_path):
         met_data['recall'].append(recall)
         logger.info(f"precision:{metrics_mean(met_data['precision'])},recall:{metrics_mean(met_data['recall'])}")
         
+        clip = eval.calc_clip(gen_imgs, cond)
+        met_data['clip'].append(clip)
+        logger.info(f"clip:{metrics_mean(met_data['clip'])}")
+        
         met_data['psnr_m'].append(metrics_mean(met_data['psnr']))
         met_data['ms_ssim_m'].append(metrics_mean(met_data['ms_ssim']))
         met_data['ssim_m'].append(metrics_mean(met_data['ssim']))
@@ -184,6 +199,7 @@ def celeba_hq_test(fldmodel, root_path):
         record_row['ssim'] = str(metrics_mean(met_data['ssim']))
         record_row['precision'] = str(metrics_mean(met_data['precision']))
         record_row['recall'] = str(metrics_mean(met_data['recall']))
+        record_row['clip'] = str(metrics_mean(met_data['clip']))
         
         csv_record(metrics_csv_path, record_row)
         metrics_fig("fid", met_data['fid'])
@@ -193,6 +209,6 @@ def celeba_hq_test(fldmodel, root_path):
     logger.remove(log_file)
     
 if __name__ == '__main__':
-    coco_train("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/celebahq-ldm-vq-4.yaml",
-               "/home/yang/sda/github/fuzzydiffusion/output/delegates/celeba_hq/celeba_hq_3_delegates.csv",
-               3)
+    coco_train("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/txt2img-1p4B-eval.yaml",
+               "/home/yang/sda/github/fuzzydiffusion/output/delegates/coco/coco_2_delegates.csv",
+               1)

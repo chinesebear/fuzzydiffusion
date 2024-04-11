@@ -31,7 +31,10 @@ def bar_blank(current, total, width=80):
     return
 
 def read_dataset(name, subpath):
-    dataset_path = options.base_path+"output/datasets/"+name+"/"+subpath+"/"
+    if subpath == '':
+        dataset_path = options.base_path+"output/datasets/"+name+"/"
+    else:
+        dataset_path = options.base_path+"output/datasets/"+name+"/"+subpath+"/"
     if os.path.exists(dataset_path):
         dataset = load_from_disk(dataset_path)
     else :
@@ -90,6 +93,7 @@ class CIFAR10(BaseDataSet):
 class COCO(BaseDataSet):
     def data_preload(self):
         logger.info("%s data preload start" %(self.dataset_path))
+        self.dataset = read_dataset(self.dataset_path, '')
         if not self.phase in self.dataset:
             logger.error("%s data not exist" %(self.phase))
             return
@@ -106,12 +110,23 @@ class COCO(BaseDataSet):
             local_img = local_path+filename
             if not os.path.exists(local_img):
                 download(url,local_path, bar=bar_blank)
-            img = Image.open(local_img)
-            if img.mode != 'RGB':
-                img = img.convert("RGB")
-            data_pairs[i] = [img, text]
+            data_pairs[i] = [local_img, text]
         self.data_pairs = data_pairs
         logger.info("%s data preload done" %(self.dataset_path))
+    def __len__(self):
+        return self.data_len
+
+    def __getitem__(self, idx):
+        img_path,text = self.data_pairs[idx]
+        image = Image.open(img_path)
+        if image.mode != 'RGB':
+            image = image.convert("RGB")
+        img = image.copy()
+        image.close()
+        if self.transform:
+            img = self.transform(img)
+        item = {'image': img, 'text': text, 'caption': text} # img:torch.tensor c,h,w
+        return item
 
 class Flowers(BaseDataSet):
     def data_preload(self):
@@ -426,4 +441,21 @@ if __name__ == '__main__':
     # for data in train_data:
     #     imgs = data['image']
     #     print(imgs.shape)
+    
+    dataset = COCO('ChristophSchuhmann/MS_COCO_2017_URL_TEXT', 
+                   phase='train', 
+                   transform=transforms.Compose([
+                    transforms.Resize((256,256)),
+                    # transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), #https://blog.csdn.net/zylooooooooong/article/details/122805833
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                ]))
+    train_data = DataLoader(
+        dataset, batch_size=32, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
+    for data in train_data:
+        imgs = data['image']
+        txts = data['text']
+        print(imgs.shape)
+        print(txts)
     print("done")

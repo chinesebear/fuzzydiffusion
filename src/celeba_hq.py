@@ -72,9 +72,9 @@ def celeba_hq_train(config_path, delegate_path, rule_num):
     train_data = DataLoader(
         dataset, batch_size=batch_size, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
     
-    # if not os.path.exists(model_path+f"fldm_ffhq_epoch_{epoch}_rules_{rule_num}.pt"):
+    # if not os.path.exists(model_path+f"fldm_celeba_hq_epoch_{epoch}_rules_{rule_num}.pt"):
     #     fldmodel.fuzzy_trainer(train_data, epoch)
-    #     save_model(fldmodel, model_path+f"fldm_ffhq_epoch_{epoch}_rules_{rule_num}.pt")
+    #     save_model(fldmodel, model_path+f"fldm_celeba_hq_epoch_{epoch}_rules_{rule_num}.pt")
 
     logger.info("celeba_hq test start")
     celeba_hq_test(fldmodel, root_path)

@@ -1,5 +1,6 @@
 import os
 import random
+import time
 
 import torch
 import torch.nn as nn
@@ -126,7 +127,58 @@ def combine_imgs4(x1, x2, x3, x4):
  
     # 保存图片
     result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test4.jpg")
+
+def combine_imgs5(x1, x2, x3, x4,x5):
+    b,c,h,w = x1.shape
     
+    x1_imgs = tensor_to_img(x1)
+    x2_imgs = tensor_to_img(x2)
+    x3_imgs = tensor_to_img(x3)
+    x4_imgs = tensor_to_img(x4)
+    x5_imgs = tensor_to_img(x5)
+ 
+    # 创建空白长图
+    result = Image.new("RGB", (w*5, h*b))
+ 
+    # 拼接图片    
+    for i in range(b):
+        result.paste(x1_imgs[i], box=(0, i*h))
+        result.paste(x2_imgs[i], box=(w, i*h))
+        result.paste(x3_imgs[i], box=(w*2, i*h))
+        result.paste(x4_imgs[i], box=(w*3, i*h))
+        result.paste(x5_imgs[i], box=(w*4, i*h))
+ 
+    # 保存图片
+    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test5.jpg")
+
+def combine_imgs5_with_prompt(x1, x2, x3, x4,x5, promprts):
+    b,c,h,w = x1.shape
+    
+    x1_imgs = tensor_to_img(x1)
+    x2_imgs = tensor_to_img(x2)
+    x3_imgs = tensor_to_img(x3)
+    x4_imgs = tensor_to_img(x4)
+    x5_imgs = tensor_to_img(x5)
+ 
+    # 创建空白长图
+    result = Image.new("RGB", (w*5, h*b))
+ 
+    # 拼接图片    
+    for i in range(b):
+        result.paste(x1_imgs[i], box=(0, i*h))
+        result.paste(x2_imgs[i], box=(w, i*h))
+        result.paste(x3_imgs[i], box=(w*2, i*h))
+        result.paste(x4_imgs[i], box=(w*3, i*h))
+        result.paste(x5_imgs[i], box=(w*4, i*h))
+    
+    unix = int(time.time())
+    # 写提示词
+    with open(f'/home/yang/sda/github/fuzzydiffusion/output/img/test/test5_{unix}.txt','w') as f:    #设置文件对象
+        f.write('\n'.join(promprts))                 #将字符串写入文件中
+    # 保存图片
+    result.save(f"/home/yang/sda/github/fuzzydiffusion/output/img/test/test5_{unix}.jpg")
+    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test5.jpg")
+
 def combing_imgs(img_arr):
     col_num, row_num ,c,h,w = img_arr.shape
     result = Image.new('RGB', (w*col_num, h*row_num))
@@ -161,7 +213,7 @@ def metrics_mean(data):
 def csv_record(path, data):
     all_header = ['fid', 'is', 'mifid', 'kid',
               'psnr','ms_ssim','ssim',
-              'precision', 'recall', 'epoch','batch','loss']  
+              'precision', 'recall', 'epoch','batch','loss','clip']  
     row = []
     header = []
     for name in all_header:

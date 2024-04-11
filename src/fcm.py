@@ -17,7 +17,7 @@ import csv
 from collections import Counter
 
 from setting import options
-from  loader import LSUN, FFHQ,CELEBA_HQ
+from  loader import LSUN, FFHQ,CELEBA_HQ,COCO
 from metrics import Evaluator
 from utils import check_dir
 
@@ -134,7 +134,7 @@ def get_delegates(train_data_loader, name, delegate_num_list):
             dlg = sigmoid(dlg*2) #[-1,1] -> [0,1]
             img = ToImg(dlg)
             count = count + 1
-            lsun_img_path = ds_path+f"lsun_churches_{delegate_num}_delegates_{count}.jpg"
+            lsun_img_path = ds_path+f"{name}_{delegate_num}_delegates_{count}.jpg"
             img.save(lsun_img_path) ## 经过transforms.Normalize归一化的图片
             lsun_img_path_list.append(lsun_img_path)
         with open(ds_csv_path, 'w', encoding='utf-8', newline='') as f:
@@ -142,6 +142,39 @@ def get_delegates(train_data_loader, name, delegate_num_list):
             writer.writerow(["delegates"])
             for path in lsun_img_path_list:
                 writer.writerow([path])
+
+def get_txtimg_delegates(train_data_loader, name, delegate_num_list):
+    # train_data_loader shuffle is true, random
+    local_delegates = None
+    for i in tqdm(range(10)):
+        batch = next(iter(train_data_loader))
+        images = batch[0]
+        dlg = img_clustering(images, 3)
+        if local_delegates is None:
+            local_delegates = dlg
+        else:
+            local_delegates = torch.concatenate((local_delegates, dlg), dim=0)
+    for delegate_num in delegate_num_list:
+        global_delegates = img_clustering(local_delegates, delegate_num)
+        count = 0
+        ToImg = transforms.ToPILImage()
+        ds_path = options.base_path+f"output/delegates/{name}/"
+        check_dir(ds_path)
+        ds_csv_path = ds_path+f"{name}_{delegate_num}_delegates.csv"
+        lsun_img_path_list = []
+        for dlg in global_delegates:
+            dlg = sigmoid(dlg*2) #[-1,1] -> [0,1]
+            img = ToImg(dlg)
+            count = count + 1
+            lsun_img_path = ds_path+f"{name}_{delegate_num}_delegates_{count}.jpg"
+            img.save(lsun_img_path) ## 经过transforms.Normalize归一化的图片
+            lsun_img_path_list.append(lsun_img_path)
+        with open(ds_csv_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(["delegates"])
+            for path in lsun_img_path_list:
+                writer.writerow([path])
+
 
 if __name__ == "__main__":
     # dataset = LSUN('lsun', 'churches','train', transform=transforms.Compose([
@@ -156,16 +189,16 @@ if __name__ == "__main__":
     # get_delegates(train_data_loader,"lsun_church", [2,3,4,5,6,7,8,9,10])
 
     
-    # dataset = LSUN('lsun', 'bedrooms','train', transform=transforms.Compose([
-    #                 transforms.Resize((256,256)),
-    #                 # transforms.RandomHorizontalFlip(),
-    #                 transforms.ToTensor(),
-    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-    #             ]),
-    #             data_limit=None)
-    # train_data_loader = DataLoader(
-    #     dataset, batch_size=10, shuffle=True, drop_last=True, pin_memory=True)
-    # get_delegates(train_data_loader,"lsun_bedroom", [2,3,4,5,6,7,8,9,10])
+    dataset = LSUN('lsun', 'bedrooms','train', transform=transforms.Compose([
+                    transforms.Resize((256,256)),
+                    # transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                ]),
+                data_limit=None)
+    train_data_loader = DataLoader(
+        dataset, batch_size=10, shuffle=True, drop_last=True, pin_memory=True)
+    get_delegates(train_data_loader,"lsun_bedroom", [2,3,4,5,6,7,8,9,10])
     
     # dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/FFHQ/', 
     #                transform=transforms.Compose([
@@ -178,15 +211,26 @@ if __name__ == "__main__":
     #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
     # get_delegates(train_data_loader,"ffhq", [2,3,4,5,6,7,8,9,10])
     
-    dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256', 
-                   transform=transforms.Compose([
-                    transforms.Resize((256,256)),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                ]))
-    train_data_loader = DataLoader(
-        dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
-    get_delegates(train_data_loader,"celeba_hq", [2,3,4,5,6,7,8,9,10])
+    # dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256', 
+    #                transform=transforms.Compose([
+    #                 transforms.Resize((256,256)),
+    #                 transforms.RandomHorizontalFlip(),
+    #                 transforms.ToTensor(),
+    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #             ]))
+    # train_data_loader = DataLoader(
+    #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    # get_delegates(train_data_loader,"celeba_hq", [2,3,4,5,6,7,8,9,10])
+    
+    # dataset = COCO('ChristophSchuhmann/MS_COCO_2017_URL_TEXT', 
+    #                transform=transforms.Compose([
+    #                 transforms.Resize((256,256)),
+    #                 transforms.RandomHorizontalFlip(),
+    #                 transforms.ToTensor(),
+    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+    #             ]))
+    # train_data_loader = DataLoader(
+    #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
+    # get_txtimg_delegates(train_data_loader,"coco", [2,3,4,5,6,7,8,9,10])
     
     print('done')

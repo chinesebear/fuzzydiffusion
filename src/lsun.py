@@ -73,9 +73,9 @@ def lsun_train(dataset_name, config_path, delegate_path, rule_num):
     train_data = DataLoader(
         dataset, batch_size=batch_size, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
     
-    # if not os.path.exists(model_path+f"fldm_lsun_{dataset_name}_epoch_{epoch}_rules_{rule_num}.pt"):
-    #     fldmodel.fuzzy_trainer(train_data, epoch)
-    #     save_model(fldmodel, model_path+f"fldm_lsun_{dataset_name}_epoch_{epoch}_rules_{rule_num}.pt")
+    if not os.path.exists(model_path+f"fldm_lsun_{dataset_name}_epoch_{epoch}_rules_{rule_num}.pt"):
+        fldmodel.fuzzy_trainer(train_data, epoch)
+        save_model(fldmodel, model_path+f"fldm_lsun_{dataset_name}_epoch_{epoch}_rules_{rule_num}.pt")
 
     logger.info("lsun test start")
     lsun_test(dataset_name, fldmodel, root_path)

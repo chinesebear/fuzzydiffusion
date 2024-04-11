@@ -140,16 +140,16 @@ class Evaluator(nn.Module):
         return ssim
     
     def calc_clip(self, images, prompts):
-        b = len(images)
-        c,h,w = self.to_tensor(images[0]).shape
-        imgs = torch.empty((b, c,h,w))
-        for i in range(b):
-            img = np.array(images[i]).reshape(c,h,w)
-            img_tensor = torch.from_numpy(img).cuda()
-            imgs[i] = img_tensor
-        clip_score = self.clip_metrics(imgs, prompts).detach() # needs time
+        # b = len(images)
+        # c,h,w = self.to_tensor(images[0]).shape
+        # imgs = torch.empty((b, c,h,w))
+        # for i in range(b):
+        #     img = np.array(images[i]).reshape(c,h,w)
+        #     img_tensor = torch.from_numpy(img).cuda()
+        #     imgs[i] = img_tensor
+        clip_score = self.clip_metrics(images, prompts).detach() # needs time
         clip_score = round(float(clip_score), 4)
-        return round(clip_score.item(),2)
+        return round(clip_score,2)
     
     def calc_preision_recall(self, ref_imgs, eval_imgs):
         with torch.no_grad():
