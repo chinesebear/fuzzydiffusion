@@ -1,2 +1,1 @@
-# Template
-Repo Template
+# Fuzzy Latent Diffusion Model
