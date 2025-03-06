@@ -6,14 +6,16 @@ import torch
 # from torchtext.data import get_tokenizer
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+from torchtext.data import get_tokenizer
 from torchvision import transforms
 from torchvision import datasets
 from torchvision.transforms import ToTensor
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from loguru import logger
 from setting import options
 from datasets import load_dataset,load_from_disk,DownloadConfig
 from tqdm import tqdm
+import pandas as pd
 import random
 import jsonlines
 from translate.storage.tmx import tmxfile
@@ -348,6 +350,30 @@ class LSUN(Dataset):
             img = img
         item = {'image': img, 'text': ''} # img:torch.tensor c,h,w
         return item
+
+class Vocab:
+    def __init__(self, name):
+        self.name = name
+        self.word2index = {"<sos>":options.SOS, "<eos>":options.EOS, "<pad>":options.PAD,"<unk>":options.UNK}
+        self.word2count = {"<sos>":1, "<eos>":1, "<pad>":1,"<unk>":1}
+        self.index2word = {options.SOS: "<sos>", options.EOS: "<eos>", options.PAD:"<pad>",options.UNK: "<unk>"}
+        self.n_words = 4  # Count PAD , SOS and EOS
+        self.feature_max = [] # max value of feature
+        self.feature_min = [] # min value of feature
+        self.line_max = 0 # max length of sentence
+
+    def addTokens(self, tokens):
+        for word in tokens:
+            self.addWord(word)
+
+    def addWord(self, word):
+        if word not in self.word2index:
+            self.word2index[word] = self.n_words
+            self.word2count[word] = 1
+            self.index2word[self.n_words] = word
+            self.n_words += 1
+        else:
+            self.word2count[word] += 1
     
 if __name__ == '__main__':
     # dataset = CIFAR10("cifar10",transform=transforms.Compose([
@@ -453,9 +479,22 @@ if __name__ == '__main__':
                 ]))
     train_data = DataLoader(
         dataset, batch_size=32, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
-    for data in train_data:
+    tokenizer = get_tokenizer("basic_english")
+    coco_vocab = Vocab("coco")
+    for data in tqdm(train_data):
         imgs = data['image']
         txts = data['text']
-        print(imgs.shape)
-        print(txts)
+        for txt in txts:
+            # print(txt)
+            tokens = tokenizer(txt)
+            coco_vocab.addTokens(tokens)
+    df = pd.DataFrame(list(coco_vocab.word2count.items()))
+    df.to_csv("/home/yang/sda/github/fuzzydiffusion/doc/coco_vocab.csv")
+    prompt_keywords= ["truck", "tree","road","person","teddy","raincoat","boots","horse","grass","sign"]
+    for word in prompt_keywords:
+        if word in coco_vocab.word2count.keys():
+            count = coco_vocab.word2count[word]
+        else:
+            count = 0
+        print(f"{word}:{count}")
     print("done")

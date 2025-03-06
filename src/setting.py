@@ -29,6 +29,10 @@ options.img_height = 128 #32
 options.img_size = (options.img_height,options.img_width)
 options.multiplier = 2.0
 options.grad_clip = 1.0
+options.SOS = 0
+options.EOS = 1
+options.PAD = 2
+options.UNK = 3
 
 unet = Options("UNet")
 unet.channel =  128 #128
