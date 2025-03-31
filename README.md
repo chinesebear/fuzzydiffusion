@@ -1,6 +1,6 @@
 # FuzzyDiffusion: Generative Fuzzy Rule Guided Latent Multi-Path Diffusion Model
 
-<img src="./doc/png/FuzzyDiffusion.png" width="100%">
+![FuzzyDiffusion](./doc/png/framework.png)
 
 ## Dependency
 ```
