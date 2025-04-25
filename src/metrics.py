@@ -11,9 +11,9 @@ from torchmetrics.functional.multimodal import clip_score
 from torchvision.transforms import ToTensor,ToPILImage,Resize
 from torchvision import transforms
 
-import numpy as np
+# import numpy as np
 from functools import partial
-import evaluate
+# import evaluate
 from PIL import Image
 import csv
 

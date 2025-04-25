@@ -1,22 +1,101 @@
-# FuzzyDiffusion: Generative Fuzzy Rule Guided Latent Multi-Path Diffusion Model
+<!-- <p align="center">
+<img src="./doc/png/logo-transparent.png" width=20% />
+</p> -->
+<h1 align="center">
+RDM: Rule Guided Latent Space Multi-Path Diffusion Model
+</h1>
+<p align="center">
+<img src="https://img.shields.io/badge/OS-Ubuntu22.4-blue" />
+<img src="https://img.shields.io/badge/Python-3.8-red" />
+<img src="https://img.shields.io/badge/Torch-1.8.0-red" />
+<img src="https://img.shields.io/badge/Build-Success-green" />
+<img src="https://img.shields.io/badge/License-BSD-blue" />
+<img src="https://img.shields.io/badge/Release-0.1-blue" />
+</p>
 
-![FuzzyDiffusion](./doc/png/framework.png)
+<p align="center">
+<img src="./doc/png/fig.structure.png" width=60% /> <br>
+Figure 1: The structure of the proposed model (RDM).
+</p>
 
-## Dependency
+## Conda Enviroment Setup
+
+``` shell
+conda create --name rdm --file ./requirements.txt
+conda activate rdm
 ```
+
+## Datasets
+
+### LSUN
+The Large-scale Scene Understanding (LSUN) challenge aims to provide a different benchmark for large-scale scene classification and understanding. The LSUN classification dataset contains 10 scene categories, such as dining room, bedroom, chicken, outdoor church, and so on. For training data, each category contains a huge number of images, ranging from around 120,000 to 3,000,000. The validation data includes 300 images, and the test data has 1000 images for each category. https://github.com/fyu/lsun
+
+To facilitate the experiments, we examined the LSUN Bedroom and LSUN Church datasets and provided download links.
+After downloading, place the `lsun` folder in the `datasets` directory located at the root of the project, as shown below:
+```shell
+xxx@xx:~/xxx/github/fuzzydiffusion/datasets/lsun$ ll
+drwxrwxr-x  8 yang yang      4096 Nov 24  2023 ./
+drwxrwxr-x 13 yang yang      4096 Apr 25 11:28 ../
+drwxrwxr-x  2 yang yang 248651776 Nov 22  2023 bedrooms_train/
+-rw-rw-r--  1 yang yang 139289932 Sep 25  2023 bedrooms_train.txt
+drwxrwxr-x  2 yang yang     32768 Nov 21  2023 bedrooms_val/
+-rw-rw-r--  1 yang yang    230000 Nov 21  2023 bedrooms_val.txt
+drwxrwxr-x  2 yang yang  10420224 Nov 21  2023 churches_train/
+drwxrwxr-x  2 yang yang     28672 Nov 21  2023 churches_val/
+-rw-rw-r--  1 yang yang   5576442 Sep 25  2023 church_outdoor_train.txt
+-rw-rw-r--  1 yang yang    230000 Sep 25  2023 church_outdoor_val.txt
 ```
 
-## Dataset
+### MS_COCO
+
+The MS COCO (Microsoft Common Objects in Context) dataset is a large-scale object detection, segmentation, key-point detection, and captioning dataset. The dataset consists of 328K images. HuggingFace: https://huggingface.co/datasets/ChristophSchuhmann/MS_COCO_2017_URL_TEXT
+
+### Verify Datasets
+
+``` shell
+cd src
+python3 load.py
+```
+log output:
+``` log
+2025-04-25 12:55:23.139 | INFO     | __main__:read_dataset:50 - ChristophSchuhmann/MS_COCO_2017_URL_TEXT- done
+2025-04-25 12:55:23.140 | INFO     | __main__:data_preload:98 - ChristophSchuhmann/MS_COCO_2017_URL_TEXT data preload start
+2025-04-25 12:55:23.145 | INFO     | __main__:read_dataset:50 - ChristophSchuhmann/MS_COCO_2017_URL_TEXT- done
+data preload: 100%|████████████████████████████████| 591753/591753 [00:23<00:00, 25651.73it/s]
+2025-04-25 12:55:46.218 | INFO     | __main__:data_preload:118 - ChristophSchuhmann/MS_COCO_2017_URL_TEXT data preload done
+2025-04-25 12:55:46.218 | INFO     | __main__:data_preload:314 - LSUN/bedrooms-train data preload start
+100%|████████████████████████████████| 3028042/3028042 [00:04<00:00, 671985.22it/s]
+2025-04-25 12:55:50.884 | INFO     | __main__:data_preload:339 - LSUN/bedrooms-train data preload done
+2025-04-25 12:55:50.940 | INFO     | __main__:data_preload:314 - LSUN/churches-train data preload start
+100%|███████████████████████████████| 121227/121227 [00:00<00:00, 859921.34it/s]
+2025-04-25 12:55:51.087 | INFO     | __main__:data_preload:339 - LSUN/churches-train data preload done
+done
+```
+## Image Set Delegates For Rule Antecedents
+To construct the rules, [2,...,10] representatives are selected.
+```shell
+python3 fcm.py
+```
+The representative selection for MS_COCO is as follows:
+```shell
+...
+-rw-rw-r-- 1 yang yang  5556 Apr 25 15:31 coco_3_delegates_1.jpg
+-rw-rw-r-- 1 yang yang  9585 Apr 25 15:31 coco_3_delegates_2.jpg
+-rw-rw-r-- 1 yang yang 11917 Apr 25 15:31 coco_3_delegates_3.jpg
+-rw-rw-r-- 1 yang yang   260 Apr 25 15:31 coco_3_delegates.csv
+-rw-rw-r-- 1 yang yang 16955 Apr 25 15:31 coco_4_delegates_1.jpg
+-rw-rw-r-- 1 yang yang  9757 Apr 25 15:31 coco_4_delegates_2.jpg
+-rw-rw-r-- 1 yang yang  9157 Apr 25 15:31 coco_4_delegates_3.jpg
+-rw-rw-r-- 1 yang yang  5556 Apr 25 15:31 coco_4_delegates_4.jpg
+-rw-rw-r-- 1 yang yang   343 Apr 25 15:31 coco_4_delegates.csv
+...
+```
 
 
 ## Train and Test
 
 
 
-## BibTeX
-cite my paper
-```
-```
 
 ## Acknowledgement
-
+Our project relies on [LDM](https://github.com/CompVis/latent-diffusion) project.

@@ -299,3 +299,41 @@ def check_dir(path):
         logger.info(f"create dir: {path}")
     else:
         logger.info(f"dir exists, {path}")
+        
+def txt_split(name, path, split_num):
+    txt_path = os.path.join(path, name)+".txt"  
+    if not os.path.exists(txt_path):
+        raise FileNotFoundError(f"File {txt_path} does not exist.")
+    with open(txt_path, "r") as fd:
+        lines = fd.readlines()
+        fd.close()
+    split_lines = len(lines) // split_num
+    lines = [lines[i:i + split_lines] for i in range(0, len(lines), split_lines)]
+    for i, line in enumerate(lines):
+        with open(os.path.join(path, f"{name}_{i}.txt"), "w") as fd:
+            fd.writelines(line)
+            fd.close()
+        logger.info(f"File {os.path.join(path, f'{name}_{i}.txt')} created.")
+    return lines
+
+def txt_combine(name, path, target_path):
+    lines = []
+    i = 0
+    while True:
+        txt_path = os.path.join(path, f"{name}_{i}.txt")
+        if not os.path.exists(txt_path):
+            break
+        with open(txt_path, "r") as fd:
+            lines += fd.readlines()
+            fd.close()
+        # os.remove(txt_path)
+        # logger.info(f"File {txt_path} removed.")
+        i += 1
+    check_dir(target_path)
+    with open(os.path.join(target_path, name)+".txt", "w") as fd:
+        fd.writelines(lines)
+        fd.close()
+    logger.info(f"File {os.path.join(path, name)+'.txt'} created.")
+    return lines
+if __name__ == '__main__':
+    print("done")

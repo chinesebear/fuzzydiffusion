@@ -200,6 +200,6 @@ if __name__ == '__main__':
     #            "/home/yang/sda/github/fuzzydiffusion/output/delegates/lsun_church/lsun_church_3_delegates.csv",
     #            3)
     lsun_train('bedrooms', 
-               "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml",
-               "/home/yang/sda/github/fuzzydiffusion/output/delegates/lsun_bedroom/lsun_bedroom_3_delegates.csv",
+               f"{options.base_path}src/config/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml",
+               f"{options.base_path}output/delegates/lsun_bedroom/lsun_bedroom_3_delegates.csv",
                3)

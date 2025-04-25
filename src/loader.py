@@ -6,7 +6,7 @@ import torch
 # from torchtext.data import get_tokenizer
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
-from torchtext.data import get_tokenizer
+# from torchtext.data import get_tokenizer
 from torchvision import transforms
 from torchvision import datasets
 from torchvision.transforms import ToTensor
@@ -26,6 +26,7 @@ from scipy.io import loadmat
 from itertools import chain
 
 
+from setting import options
 
 
 
@@ -34,9 +35,9 @@ def bar_blank(current, total, width=80):
 
 def read_dataset(name, subpath):
     if subpath == '':
-        dataset_path = options.base_path+"output/datasets/"+name+"/"
+        dataset_path = options.base_path+"datasets/"+name+"/"
     else:
-        dataset_path = options.base_path+"output/datasets/"+name+"/"+subpath+"/"
+        dataset_path = options.base_path+"datasets/"+name+"/"+subpath+"/"
     if os.path.exists(dataset_path):
         dataset = load_from_disk(dataset_path)
     else :
@@ -108,7 +109,7 @@ class COCO(BaseDataSet):
             text = data['TEXT']
             url_feilds = urlparse(url)
             filename = os.path.basename(url_feilds.path)
-            local_path = options.base_path+"output/datasets/"+self.dataset_path+"/train/"
+            local_path = options.base_path+"datasets/"+self.dataset_path+"/train/"
             local_img = local_path+filename
             if not os.path.exists(local_img):
                 download(url,local_path, bar=bar_blank)
@@ -313,7 +314,7 @@ class LSUN(Dataset):
         logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload start")
         sub_map = {"churches":"church_outdoor", "cats":"cat", "bedrooms":"bedrooms"}
         img_txt_name = sub_map[self.dataset_sub_path]+'_'+self.phase+".txt"
-        img_txt_path = options.base_path+"output/datasets/lsun/"+img_txt_name
+        img_txt_path = options.base_path+"datasets/lsun/"+img_txt_name
         if not os.path.exists(img_txt_path):
             logger.error(f"{img_txt_path} not exists")
             return
@@ -328,7 +329,7 @@ class LSUN(Dataset):
             self.data_len = len(lines)
         data_pairs = np.empty([self.data_len], dtype=int).tolist()
         for i in tqdm(range(self.data_len)):
-            img_path = options.base_path+f"output/datasets/lsun/{self.dataset_sub_path}_{self.phase}/"+ lines[i].replace('\n', '')
+            img_path = options.base_path+f"datasets/lsun/{self.dataset_sub_path}_{self.phase}/"+ lines[i].replace('\n', '')
             if i < 100 and not os.path.exists(img_path):
                 logger.error(f"{img_path} not exists")
                 return
@@ -374,7 +375,7 @@ class Vocab:
             self.n_words += 1
         else:
             self.word2count[word] += 1
-    
+            
 if __name__ == '__main__':
     # dataset = CIFAR10("cifar10",transform=transforms.Compose([
     #         transforms.RandomHorizontalFlip(),
@@ -386,12 +387,6 @@ if __name__ == '__main__':
     # train_data = DataLoader(
     #     dataset, batch_size=options.batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
     
-    # dataset = COCO("ChristophSchuhmann/MS_COCO_2017_URL_TEXT",transform=transforms.Compose([
-    #         transforms.Resize((32,32)),
-    #         transforms.RandomHorizontalFlip(),
-    #         transforms.ToTensor(),
-    #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-    #     ]))
     
     # dataset = Flowers("nelorth/oxford-flowers",transform=transforms.Compose([
     #         transforms.Resize((32,32)),
@@ -407,16 +402,7 @@ if __name__ == '__main__':
     #         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     #     ]))
     
-    # dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
-    #                dataset_sub_path='bedrooms',
-    #                phase='train', 
-    #                data_limit=5000,
-    #                transform=transforms.Compose([
-    #                 transforms.Resize((256,256)),
-    #                 transforms.RandomHorizontalFlip(),
-    #                 transforms.ToTensor(),
-    #                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-    #             ]))
+
             
     # train_data = DataLoader(
     #     dataset, batch_size=32, shuffle=True, drop_last=True, pin_memory=True)
@@ -427,7 +413,7 @@ if __name__ == '__main__':
     #     img = ToImg(imgs[0])
     #     img.save("/home/yang/sda/github/fuzzydiffusion/output/img/loader.jpg")
     
-    # dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/FFHQ/', 
+    # dataset = FFHQ('/home/yang/sda/github/fuzzydiffusion/datasets/FFHQ/', 
     #                transform=transforms.Compose([
     #                 transforms.Resize((256,256)),
     #                 transforms.RandomHorizontalFlip(),
@@ -440,7 +426,7 @@ if __name__ == '__main__':
     #     imgs = data['image']
     #     print(imgs.shape)
     
-    # dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256',
+    # dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/datasets/celeba_hq_256',
     #                     # data_limit=5000, 
     #                     transform=transforms.Compose([
     #                         transforms.Resize((256,256)),
@@ -454,7 +440,7 @@ if __name__ == '__main__':
     #     imgs = data['image']
     #     print(imgs.shape)
     
-    # dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/output/datasets/celeba_hq_256',
+    # dataset = CELEBA_HQ('/home/yang/sda/github/fuzzydiffusion/datasets/celeba_hq_256',
     #                     # data_limit=5000, 
     #                     transform=transforms.Compose([
     #                         transforms.Resize((256,256)),
@@ -467,34 +453,32 @@ if __name__ == '__main__':
     # for data in train_data:
     #     imgs = data['image']
     #     print(imgs.shape)
+    dataset = COCO("ChristophSchuhmann/MS_COCO_2017_URL_TEXT",transform=transforms.Compose([
+            transforms.Resize((32,32)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]))
     
-    dataset = COCO('ChristophSchuhmann/MS_COCO_2017_URL_TEXT', 
+    dataset = LSUN(options.base_path+'datasets/lsun', 
+                   dataset_sub_path='bedrooms',
                    phase='train', 
+                   data_limit=None,
                    transform=transforms.Compose([
                     transforms.Resize((256,256)),
-                    # transforms.RandomHorizontalFlip(),
+                    transforms.RandomHorizontalFlip(),
                     transforms.ToTensor(),
-                    # transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]), #https://blog.csdn.net/zylooooooooong/article/details/122805833
                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
                 ]))
-    train_data = DataLoader(
-        dataset, batch_size=32, num_workers=5,shuffle=True, drop_last=True, pin_memory=True)
-    tokenizer = get_tokenizer("basic_english")
-    coco_vocab = Vocab("coco")
-    for data in tqdm(train_data):
-        imgs = data['image']
-        txts = data['text']
-        for txt in txts:
-            # print(txt)
-            tokens = tokenizer(txt)
-            coco_vocab.addTokens(tokens)
-    df = pd.DataFrame(list(coco_vocab.word2count.items()))
-    df.to_csv("/home/yang/sda/github/fuzzydiffusion/doc/coco_vocab.csv")
-    prompt_keywords= ["truck", "tree","road","person","teddy","raincoat","boots","horse","grass","sign"]
-    for word in prompt_keywords:
-        if word in coco_vocab.word2count.keys():
-            count = coco_vocab.word2count[word]
-        else:
-            count = 0
-        print(f"{word}:{count}")
+    dataset = LSUN(options.base_path+'datasets/lsun', 
+                   dataset_sub_path='churches',
+                   phase='train', 
+                   data_limit=None,
+                   transform=transforms.Compose([
+                    transforms.Resize((256,256)),
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ToTensor(),
+                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                ]))
+   
     print("done")
