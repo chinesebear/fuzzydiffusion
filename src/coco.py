@@ -209,6 +209,6 @@ def coco_test(fldmodel, root_path):
     logger.remove(log_file)
     
 if __name__ == '__main__':
-    coco_train("/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/txt2img-1p4B-eval.yaml",
-               "/home/yang/sda/github/fuzzydiffusion/output/delegates/coco/coco_2_delegates.csv",
-               1)
+    coco_train(f"{options.base_path}src/config/latent-diffusion/txt2img-1p4B-eval.yaml",
+               f"{options.base_path}output/delegates/coco/coco_3_delegates.csv",
+               3)
