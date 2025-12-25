@@ -34,10 +34,13 @@ conda activate dfs
 ## Datasets
 
 ### LSUN
+<p align="justify">
 The Large-scale Scene Understanding (LSUN) challenge aims to provide a different benchmark for large-scale scene classification and understanding. The LSUN classification dataset contains 10 scene categories, such as dining room, bedroom, chicken, outdoor church, and so on. For training data, each category contains a huge number of images, ranging from around 120,000 to 3,000,000. The validation data includes 300 images, and the test data has 1000 images for each category. https://github.com/fyu/lsun
+</p>
 
-To facilitate the experiments, we examined the LSUN Bedroom and LSUN Church datasets and provided [download links](https://gofile.me/7y6ht/61yKRTxNi) for zip (92GB, `unzip lsun.zip`) .
-After downloading, place the `lsun` folder into the `datasets` directory located at the root of the project, as shown below:
+
+To facilitate the experiments, we examined the LSUN Bedroom and LSUN Church datasets and provided [download link](https://gofile.me/7y6ht/61yKRTxNi) for zip (92GB, `unzip lsun.zip`) . After downloading, place the `lsun` folder into the `datasets` directory located at the root of the project, as shown below:
+
 ```shell
 xxx@xx:~/xxx/github/fuzzydiffusion/datasets/lsun$ ll
 drwxrwxr-x  8 yang yang      4096 Nov 24  2023 ./
@@ -53,12 +56,14 @@ drwxrwxr-x  2 yang yang     28672 Nov 21  2023 churches_val/
 ```
 
 ### MS_COCO
-
+<p align="justify">
 The MS COCO (Microsoft Common Objects in Context) dataset is a large-scale object detection, segmentation, key-point detection, and captioning dataset. The dataset consists of 328K images. 
 
 HuggingFace: https://huggingface.co/datasets/ChristophSchuhmann/MS_COCO_2017_URL_TEXT
 
 MS_COCO is automatically downloaded in `loader.py`, so no manual work is required.
+</p>
+
 ### Load Datasets
 
 ``` shell
