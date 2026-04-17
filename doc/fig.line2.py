@@ -10,7 +10,7 @@ import numpy as np
 def f1(x):
     # 参数
     k = 10
-    a = 350 #x
+    a = 430 #x
     b = 0.92 #y
     # 函数
     y = k / (x - a) + b
@@ -19,7 +19,7 @@ def f1(x):
 def f2(x):
     # 参数
     k = 10
-    a = 430 #x
+    a = 360 #x
     b = 0.32 #y
     # 函数
     y = k / (x-a) + b
@@ -28,7 +28,7 @@ def f2(x):
 def f3(x):
     # 参数
     k = 10
-    a = 560 #x
+    a = 660 #x
     b = 0.15 #y
     # 函数
     y = -k / (x - a) + b
@@ -37,7 +37,7 @@ def f3(x):
 def f4(x):
     # 参数
     k = 10
-    a = 520 #x
+    a = 420 #x
     b = 0.34 #y
     # 函数
     y = -k / (x - a) + b
@@ -55,18 +55,18 @@ def f5(x):
 def f6(x):
     # 参数
     k = 8
-    a = 620 #x
+    a = 640 #x
     b = 0.34 #y
     # 函数
     y = -k / (x - a) + b
     return y
 
-def fs1(offset=180):
+def fs1(offset=40):
     # 生成x
     offset_val = offset
     xs = np.linspace(0+offset_val, 400+offset_val, 400)
     # 正弦波
-    ys = 0.2*np.sin(xs/70)+0.05*np.sin(xs/25)+0.58
+    ys = 0.1*np.sin(xs/300)+0.1*np.sin(xs/50)+0.05*np.sin(xs/20)+0.58
     return ys
 
 def fs2(offset=0):
@@ -74,7 +74,7 @@ def fs2(offset=0):
     offset_val = offset
     xs = np.linspace(0+offset_val, 400+offset_val, 400)
     # 正弦波
-    ys = 0.01*np.sin(xs/100)+0.05*np.sin(xs/50)+0.2
+    ys = 0.01*np.sin(xs/80)+0.05*np.sin(xs/50)+0.2
     return ys
 
 def fs3(offset=20):
@@ -82,7 +82,7 @@ def fs3(offset=20):
     offset_val = offset
     xs = np.linspace(0+offset_val, 400+offset_val, 400)
     # 正弦波
-    ys = 0.01*np.sin(xs/100)+0.05*np.sin(xs/30)+0.18
+    ys = 0.01*np.sin(xs/100)+0.02*np.sin(xs/30)+0.18
     return ys
 
 # 避开 x=0
@@ -95,11 +95,11 @@ x = np.linspace(1, 1000, 1000)
 x1 = np.linspace(1, 400, 400)
 x2 = np.linspace(400, 1000, 600)
 y1 = np.concatenate((f1(x1), f2(x2)), axis=0)
-y1[300:500]= fs1()[0:200]
+# y1[300:500]= fs1()[0:200]
 x1 = np.linspace(1, 500, 500)
 x2 = np.linspace(500, 1000, 500)
 y2 = np.concatenate((f3(x1), f4(x2)), axis=0)
-y2[300:600] = fs2()[0:300]
+# y2[300:600] = fs2()[0:300]
 x1 = np.linspace(1, 600, 600)
 x2 = np.linspace(600, 1000, 400)
 y3 = np.concatenate((f5(x1), f6(x2)), axis=0)
