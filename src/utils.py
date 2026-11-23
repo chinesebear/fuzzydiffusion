@@ -12,7 +12,39 @@ import numpy as np
 import matplotlib.pyplot as plt
 from loguru import logger
 from PIL import Image
+from omegaconf import DictConfig, ListConfig, OmegaConf
 import csv
+
+from setting import options
+
+
+def resolve_path(path):
+    """Resolve a repository-relative path against ``options.base_path``."""
+    if path is None:
+        return None
+    return path if os.path.isabs(path) else os.path.join(options.base_path, path)
+
+
+def _resolve_relative_paths(node):
+    """Resolve every ``ckpt_path`` entry in a config against the repo root."""
+    if isinstance(node, DictConfig):
+        for key in list(node.keys()):
+            value = node[key]
+            if key == "ckpt_path" and isinstance(value, str) and value:
+                node[key] = resolve_path(value)
+            elif isinstance(value, (DictConfig, ListConfig)):
+                _resolve_relative_paths(value)
+    elif isinstance(node, ListConfig):
+        for value in node:
+            _resolve_relative_paths(value)
+
+
+def load_config(config_path):
+    """Load an OmegaConf file and make its checkpoint paths portable."""
+    config = OmegaConf.load(config_path)
+    _resolve_relative_paths(config)
+    return config
+
 
 def stat_model_param(model, name=None):
     total_num = sum(p.numel() for p in model.parameters())
@@ -86,11 +118,12 @@ def combine_imgs2(x1, x2):
         result.paste(x2_imgs[i], box=(w, i*h))
  
     # 保存图片
-    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test2.jpg")   
+    result.save(options.base_path + "output/img/test2.jpg")   
 
 def combine_imgs3(x1, x2, x3):
+    os.makedirs(options.base_path + "output/img", exist_ok=True)
     b,c,h,w = x1.shape
-    
+
     x1_imgs = tensor_to_img(x1)
     x2_imgs = tensor_to_img(x2)
     x3_imgs = tensor_to_img(x3)
@@ -105,7 +138,7 @@ def combine_imgs3(x1, x2, x3):
         result.paste(x3_imgs[i], box=(w*2, i*h))
  
     # 保存图片
-    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test3.jpg")
+    result.save(options.base_path + "output/img/test3.jpg")
 
 def combine_imgs4(x1, x2, x3, x4):
     b,c,h,w = x1.shape
@@ -126,7 +159,7 @@ def combine_imgs4(x1, x2, x3, x4):
         result.paste(x4_imgs[i], box=(w*3, i*h))
  
     # 保存图片
-    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test4.jpg")
+    result.save(options.base_path + "output/img/test4.jpg")
 
 def combine_imgs5(x1, x2, x3, x4,x5):
     b,c,h,w = x1.shape
@@ -149,7 +182,7 @@ def combine_imgs5(x1, x2, x3, x4,x5):
         result.paste(x5_imgs[i], box=(w*4, i*h))
  
     # 保存图片
-    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test5.jpg")
+    result.save(options.base_path + "output/img/test5.jpg")
 
 def combine_imgs5_with_prompt(x1, x2, x3, x4,x5, promprts):
     b,c,h,w = x1.shape
@@ -172,12 +205,14 @@ def combine_imgs5_with_prompt(x1, x2, x3, x4,x5, promprts):
         result.paste(x5_imgs[i], box=(w*4, i*h))
     
     unix = int(time.time())
+    text_dir = options.base_path + 'output/img/test/'
+    os.makedirs(text_dir, exist_ok=True)
     # 写提示词
-    with open(f'/home/yang/sda/github/fuzzydiffusion/output/img/test/test5_{unix}.txt','w') as f:    #设置文件对象
+    with open(f'{text_dir}test5_{unix}.txt', 'w') as f:    #设置文件对象
         f.write('\n'.join(promprts))                 #将字符串写入文件中
     # 保存图片
-    result.save(f"/home/yang/sda/github/fuzzydiffusion/output/img/test/test5_{unix}.jpg")
-    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/test5.jpg")
+    result.save(f'{text_dir}test5_{unix}.jpg')
+    result.save(options.base_path + "output/img/test5.jpg")
 
 def combing_imgs(img_arr):
     col_num, row_num ,c,h,w = img_arr.shape
@@ -187,9 +222,10 @@ def combing_imgs(img_arr):
         for j in range(row_num):
              result.paste(imgs[i], box=(i*w, j*h))
     # 保存图片
-    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/combine.jpg")
+    result.save(options.base_path + "output/img/combine.jpg")
                 
 def metrics_fig(name, data):
+    os.makedirs(options.base_path + "output/img", exist_ok=True)
     xmax = len(data)
     xpoints = np.arange(xmax)
     ypoints = np.array(data)
@@ -199,7 +235,7 @@ def metrics_fig(name, data):
     plt.plot(xpoints, ypoints, color='blue')
     plt.xlabel("batch")
     plt.ylabel(f"{name} score")
-    plt.savefig(f"/home/yang/sda/github/fuzzydiffusion/output/img/metrics_{name}.jpg")
+    plt.savefig(options.base_path + f"output/img/metrics_{name}.jpg")
     plt.show() 
 
 def metrics_mean(data):
@@ -213,7 +249,8 @@ def metrics_mean(data):
 def csv_record(path, data):
     all_header = ['fid', 'is', 'mifid', 'kid',
               'psnr','ms_ssim','ssim',
-              'precision', 'recall', 'epoch','batch','loss','clip']  
+              'precision', 'recall', 'epoch','batch','loss','clip'] \
+        + [f'loss_rule_{index}' for index in range(1, 11)]
     row = []
     header = []
     for name in all_header:

@@ -28,8 +28,9 @@ from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.util import instantiate_from_config,count_params
 from ldm.modules.ema import LitEma
 from loader import LSUN
-from setting import options,setup_seed
+from setting import options
 from metrics import Evaluator
+from utils import setup_seed, load_config
 
 def tensor_to_img(img_tensors):
     imgs = []
@@ -40,6 +41,7 @@ def tensor_to_img(img_tensors):
     return imgs
 
 def combine_imgs(x, x_p, x_rec):
+    os.makedirs(options.base_path + "output/img", exist_ok=True)
     b,c,h,w = x.shape
     
     x_imgs = tensor_to_img(x)
@@ -56,9 +58,10 @@ def combine_imgs(x, x_p, x_rec):
         result.paste(x_rec_imgs[i], box=(w*2, i*h))
  
     # 保存图片
-    result.save("/home/yang/sda/github/fuzzydiffusion/output/img/lsun.jpg")
+    result.save(options.base_path + "output/img/lsun.jpg")
     
 def metrics_fig(name, data):
+    os.makedirs(options.base_path + "output/img", exist_ok=True)
     xmax = len(data)
     xpoints = np.arange(xmax)
     ypoints = np.array(data)
@@ -68,7 +71,7 @@ def metrics_fig(name, data):
     plt.plot(xpoints, ypoints, color='blue')
     plt.xlabel("batch")
     plt.ylabel(f"{name} score")
-    plt.savefig(f"/home/yang/sda/github/fuzzydiffusion/output/img/metrics_{name}.jpg")
+    plt.savefig(options.base_path + f"output/img/metrics_{name}.jpg")
     plt.show() 
 
 def metrics_mean(data):
@@ -125,16 +128,16 @@ def lsun_test(dataset_name, config_path):
     metrics_csv_path = root_path+'metrics-'+str(datetime.date.today()) +'.csv'
     dist_csv_path = root_path+'distribution-'+str(datetime.date.today()) +'.csv'
     
-    config = OmegaConf.load(config_path)
+    config = load_config(config_path)
     model_config = config.pop("model", OmegaConf.create())
     ldmodel = instantiate_from_config(model_config).to(options.device)
     ddim = DDIMSampler(ldmodel)
 
     # eval = Evaluator(device=torch.device("cpu"))
     eval = Evaluator()
-    dataset = LSUN('/home/yang/sda/github/fuzzydiffusion/output/datasets/lsun', 
+    dataset = LSUN(options.base_path + 'datasets/lsun',
                    dataset_sub_path=dataset_name,
-                   phase='train', 
+                   phase='test',
                    data_limit= 6400,
                    transform=transforms.Compose([
                     transforms.Resize((256,256)),
@@ -176,7 +179,8 @@ def lsun_test(dataset_name, config_path):
         
         bs,c,h,w = z.shape
         shape = (c,h,w)
-        samples, _ = ddim.sample(200, batch_size=bs, shape=shape, eta=0.0, verbose=False,x0=z_start, x_T=z_noisy)
+        samples, _ = ddim.sample(options.ddim_steps, batch_size=bs, shape=shape, eta=0.0,
+                                 verbose=False, x0=z_start, x_T=z_noisy)
         # samples = ldmodel.sample(cond=None, batch_size=batch_size, x_T=z_noisy)
         z_rec = samples
         x_rec = ldmodel.decode_first_stage(z_rec)
@@ -252,5 +256,5 @@ def lsun_test(dataset_name, config_path):
 
 if __name__ == '__main__':
     setup_seed(10)
-    # lsun_test('churches', "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
-    lsun_test('bedrooms', "/home/yang/sda/github/fuzzydiffusion/src/config/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml")
+    # lsun_test('churches', options.base_path + "src/config/latent-diffusion/lsun_churches-ldm-kl-8.yaml")
+    lsun_test('bedrooms', options.base_path + "src/config/latent-diffusion/lsun_bedrooms-ldm-vq-4.yaml")

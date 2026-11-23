@@ -1,6 +1,8 @@
+# DFS on LSUN Church (KL-f8, 256 -> 32x32 latent), paper Sec. IV.
+# `model` describes the frozen latent-diffusion backbone; its UNet initialises
+# the K rule models.  `fuzzy` configures FuzzyLatentDiffusion (Algorithm 1/2).
 model:
-  base_learning_rate: 5.0e-5   # set to target_lr by starting main.py with '--scale_lr False'
-  target: fldm.FuzzyLatentDiffusion
+  target: ldm.models.diffusion.ddpm.LatentDiffusion
   params:
     linear_start: 0.0015
     linear_end: 0.0155
@@ -16,38 +18,29 @@ model:
     concat_mode: False
     scale_by_std: True
     monitor: 'val/loss_simple_ema'
-    rule_num: 3
-    delegate_path: '/home/yang/sda/github/fuzzydiffusion/output/img/lsun/lsun_churches.csv' 
-
-    scheduler_config: # 10000 warmup steps
-      target: lr_scheduler.LambdaLinearScheduler
-      params:
-        warm_up_steps: [10000]
-        cycle_lengths: [10000000000000]
-        f_start: [1.e-6]
-        f_max: [1.]
-        f_min: [ 1.]
+    # Paths are resolved relative to the repository root by utils.load_config.
+    ckpt_path: "output/models/ldm/lsun_churches256/model.ckpt"
 
     unet_config:
-      target: openaimodel.UNetModel
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
       params:
         image_size: 32
         in_channels: 4
         out_channels: 4
         model_channels: 192
-        attention_resolutions: [ 1, 2, 4, 8 ]   # 32, 16, 8, 4
+        attention_resolutions: [ 1, 2, 4, 8 ]
         num_res_blocks: 2
-        channel_mult: [ 1,2,2,4,4 ]  # 32, 16, 8, 4, 2
+        channel_mult: [ 1,2,2,4,4 ]
         num_heads: 8
         use_scale_shift_norm: True
         resblock_updown: True
 
     first_stage_config:
-      target: autoencoder.AutoencoderKL
+      target: ldm.models.autoencoder.AutoencoderKL
       params:
         embed_dim: 4
         monitor: "val/rec_loss"
-        ckpt_path: "/home/yang/sda/github/fuzzydiffusion/output/ckpt/first_stage_models/kl-f8/model.ckpt"
+        ckpt_path: "output/models/first_stage_models/kl-f8/model.ckpt"
         ddconfig:
           double_z: True
           z_channels: 4
@@ -55,49 +48,22 @@ model:
           in_channels: 3
           out_ch: 3
           ch: 128
-          ch_mult: [ 1,2,4,4 ]  # num_down = len(ch_mult)-1
+          ch_mult: [ 1,2,4,4 ]
           num_res_blocks: 2
           attn_resolutions: [ ]
           dropout: 0.0
         lossconfig:
           target: torch.nn.Identity
 
-    cond_stage_config:
-      target: encoders.BERTEmbedder
-      params:
-        n_embed: 1280
-        n_layer: 32
+    cond_stage_config: "__is_unconditional__"
 
-data:
-  target: main.DataModuleFromConfig
-  params:
-    batch_size: 8
-    num_workers: 5
-    wrap: False
-    train:
-      target: lsun.LSUNChurchesTrain
-      params:
-        size: 256
-    validation:
-      target: lsun.LSUNChurchesValidation
-      params:
-        size: 256
-    test:
-      target: lsun.LSUNChurchesTest
-      params:
-        size: 256  
-
-lightning:
-  callbacks:
-    image_logger:
-      target: main.ImageLogger
-      params:
-        batch_frequency: 5000
-        max_images: 8
-        increase_log_steps: False
-
-
-  trainer:
-    benchmark: True
-    max_epochs: 2
-    
+fuzzy:
+  rule_num: 3          # K
+  alpha: 0.3           # paper: LSUN optimum alpha = 0.3
+  beta_1: 0.0015
+  beta_T: 0.0155
+  T: 1000
+  ddim_steps: 1000     # paper: all methods use 1,000 sampling steps
+  cfg_scale: 1.0       # unconditional
+  smc_every: 1         # DFIE membership at every reverse step
+  delegate_path: "output/delegates/lsun_church/lsun_church_3_delegates.csv"

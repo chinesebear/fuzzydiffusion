@@ -26,12 +26,25 @@ from scipy.io import loadmat
 from itertools import chain
 
 
-from setting import options
-
 
 
 def bar_blank(current, total, width=80):
     return
+
+
+def split_indices(length, phase, ratios=None):
+    """Deterministic 7:1:2 split used in the paper (Table I)."""
+    ratios = ratios if ratios is not None else options.split_ratio
+    n_train = int(round(length * ratios[0]))
+    n_val = int(round(length * ratios[1]))
+    if phase == 'train':
+        return list(range(0, n_train))
+    if phase in ('validation', 'val'):
+        return list(range(n_train, n_train + n_val))
+    if phase in ('test', 'testing'):
+        return list(range(n_train + n_val, length))
+    raise ValueError(f"unknown phase: {phase}")
+
 
 def read_dataset(name, subpath):
     if subpath == '':
@@ -41,7 +54,11 @@ def read_dataset(name, subpath):
     if os.path.exists(dataset_path):
         dataset = load_from_disk(dataset_path)
     else :
-        config = DownloadConfig(resume_download=True, max_retries=100,use_auth_token='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') 
+        config = DownloadConfig(
+            resume_download=True,
+            max_retries=100,
+            use_auth_token=os.environ.get("HF_TOKEN"),
+        )
         if subpath == '':
             dataset = load_dataset(name, download_config=config)
         else:
@@ -97,30 +114,29 @@ class COCO(BaseDataSet):
     def data_preload(self):
         logger.info("%s data preload start" %(self.dataset_path))
         self.dataset = read_dataset(self.dataset_path, '')
-        if not self.phase in self.dataset:
-            logger.error("%s data not exist" %(self.phase))
-            return
-        self.data_len = self.dataset[self.phase].num_rows
-        data_pairs = np.empty([self.data_len], dtype=int).tolist()
-        data_iter = iter(self.dataset[self.phase])
-        for i in tqdm(range(self.data_len), "data preload"):
-            data = next(data_iter)
-            url = data['URL']
-            text = data['TEXT']
-            url_feilds = urlparse(url)
-            filename = os.path.basename(url_feilds.path)
-            local_path = options.base_path+"datasets/"+self.dataset_path+"/train/"
-            local_img = local_path+filename
-            if not os.path.exists(local_img):
-                download(url,local_path, bar=bar_blank)
-            data_pairs[i] = [local_img, text]
+        # `ChristophSchuhmann/MS_COCO_2017_URL_TEXT` only has a `train` split
+        # (591,753 images).  The paper splits the 592k images 7:1:2.
+        split = self.dataset['train']
+        indices = split_indices(split.num_rows, self.phase)
+        self.data_len = len(indices)
+        data_pairs = []
+        for i in tqdm(indices, "data preload"):
+            data = split[i]
+            data_pairs.append([data['URL'], data['TEXT']])
         self.data_pairs = data_pairs
+        self.local_dir = (
+            options.base_path + "datasets/" + self.dataset_path + "/"
+            + ("train" if self.phase == 'train' else self.phase) + "/"
+        )
+        os.makedirs(self.local_dir, exist_ok=True)
         logger.info("%s data preload done" %(self.dataset_path))
-    def __len__(self):
-        return self.data_len
 
     def __getitem__(self, idx):
-        img_path,text = self.data_pairs[idx]
+        url, text = self.data_pairs[idx]
+        filename = os.path.basename(urlparse(url).path)
+        img_path = self.local_dir + filename
+        if not os.path.exists(img_path):
+            download(url, self.local_dir, bar=bar_blank)
         image = Image.open(img_path)
         if image.mode != 'RGB':
             image = image.convert("RGB")
@@ -157,24 +173,78 @@ class Flowers(BaseDataSet):
         self.data_pairs = data_pairs
         logger.info("%s data preload done" %(self.dataset_path))
 
-class CUB200(BaseDataSet):
+class CUB200(Dataset):
+    """CUB-200-2011 (the paper's "CUB 200"/"CUE 200") from the local copy.
+
+    The class names are used as the text condition ("a photo of a ...").
+    Images are split 7:1:2 as in Table I.
+    """
+
+    def __init__(self, dataset_path=None, phase='train', transform=None,
+                 data_limit=None):
+        self.dataset_path = dataset_path or (
+            options.base_path + "datasets/CUE-200-2011"
+        )
+        self.phase = phase
+        self.transform = transform or transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ])
+        self.data_limit = data_limit
+        self.data_pairs = []
+        self.data_preload()
+
+    @staticmethod
+    def _read_index(path):
+        entries = {}
+        with open(path, "r", encoding="utf-8") as handle:
+            for line in handle:
+                fields = line.strip().split()
+                if len(fields) >= 2:
+                    entries[int(fields[0])] = fields[1]
+        return entries
+
     def data_preload(self):
         logger.info("CUB200 data preload start")
-        if not self.phase in self.dataset:
-            logger.error("%s data not exist" %(self.phase))
-            return
-        dataset_path = "anjunhu/naively_captioned_CUB2002011_test"
-        dataset = [self.dataset, read_dataset(dataset_path, '')]
-        self.data_len = dataset[0]['train'].num_rows + dataset[1]['train'].num_rows
-        data_pairs = np.empty([self.data_len], dtype=int).tolist()
-        data_iter = chain(iter(dataset[0]['train']) , iter(dataset[1]['train']))
-        for i in tqdm(range(self.data_len),"data preload"):
-            data = next(data_iter)
-            img = data['image']
-            text = data['text']
-            data_pairs[i] = [img, text]
-        self.data_pairs = data_pairs
+        images = self._read_index(os.path.join(self.dataset_path, "images.txt"))
+        labels = self._read_index(
+            os.path.join(self.dataset_path, "image_class_labels.txt")
+        )
+        classes = self._read_index(os.path.join(self.dataset_path, "classes.txt"))
+        class_names = {
+            index: name.split(".", 1)[-1].replace("_", " ")
+            for index, name in classes.items()
+        }
+
+        image_ids = sorted(images.keys())
+        indices = split_indices(len(image_ids), self.phase)
+        if self.data_limit is not None:
+            indices = indices[:self.data_limit]
+
+        image_root = os.path.join(self.dataset_path, "images")
+        self.data_pairs = [
+            (
+                os.path.join(image_root, images[image_id]),
+                "a photo of a " + class_names.get(int(labels[image_id]), "bird"),
+            )
+            for image_id in (image_ids[i] for i in indices)
+        ]
         logger.info("CUB200 data preload done")
+
+    def __len__(self):
+        return len(self.data_pairs)
+
+    def __getitem__(self, idx):
+        img_path, text = self.data_pairs[idx]
+        image = Image.open(img_path)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        img = image.copy()
+        image.close()
+        if self.transform:
+            img = self.transform(img)
+        return {'image': img, 'text': text, 'caption': text}
 
 def tensor_to_img(data):
     data = np.uint8((data+1.0)*255/2)
@@ -313,28 +383,35 @@ class LSUN(Dataset):
     def data_preload(self):
         logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload start")
         sub_map = {"churches":"church_outdoor", "cats":"cat", "bedrooms":"bedrooms"}
-        img_txt_name = sub_map[self.dataset_sub_path]+'_'+self.phase+".txt"
-        img_txt_path = options.base_path+"datasets/lsun/"+img_txt_name
+        # The paper splits the full dataset 7:1:2 (Table I).  The released
+        # folder contains all images under `<subset>_train/`, so every split
+        # slices the same index list deterministically.
+        img_txt_path = (
+            options.base_path + "datasets/lsun/"
+            + sub_map[self.dataset_sub_path] + '_train.txt'
+        )
         if not os.path.exists(img_txt_path):
             logger.error(f"{img_txt_path} not exists")
             return
-        fd = open(img_txt_path, "r")
-        lines = fd.readlines()
-        fd.close()
-        if self.data_limit is None:
-            self.data_len = len(lines)
-        elif len(lines) > self.data_limit:
-            self.data_len = self.data_limit
-        else:
-            self.data_len = len(lines)
-        data_pairs = np.empty([self.data_len], dtype=int).tolist()
-        for i in tqdm(range(self.data_len)):
-            img_path = options.base_path+f"datasets/lsun/{self.dataset_sub_path}_{self.phase}/"+ lines[i].replace('\n', '')
-            if i < 100 and not os.path.exists(img_path):
+        with open(img_txt_path, "r") as fd:
+            lines = [line.strip() for line in fd if line.strip()]
+
+        indices = split_indices(len(lines), self.phase)
+        if self.data_limit is not None:
+            indices = indices[:self.data_limit]
+        self.data_len = len(indices)
+
+        image_dir = (
+            options.base_path + "datasets/lsun/"
+            + self.dataset_sub_path + "_train/"
+        )
+        data_pairs = []
+        for i in tqdm(indices):
+            img_path = image_dir + lines[i]
+            if len(data_pairs) < 100 and not os.path.exists(img_path):
                 logger.error(f"{img_path} not exists")
                 return
-            text = ''
-            data_pairs[i] = [img_path, text]
+            data_pairs.append([img_path, ''])
         self.data_pairs = data_pairs
         logger.info(f"LSUN/{self.dataset_sub_path}-{self.phase} data preload done")
     
