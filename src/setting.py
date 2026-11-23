@@ -12,10 +12,11 @@ class Options:
         return self.name
 
 # project gloal parameter
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 options = Options("Model")
 options.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-options.evaluate_path="/home/yang/sda/github/evaluate/"
-options.base_path="/home/yang/sda/github/fuzzydiffusion/"
+options.evaluate_path = os.path.join(_REPO_ROOT, "output", "evaluate") + os.sep
+options.base_path = _REPO_ROOT + os.sep
 options.model_parameter_path = options.base_path+"output/pth/"
 options.dataset_path = options.base_path+"output/datasets/"
 options.img_path = options.base_path+"output/img/"
@@ -29,6 +30,15 @@ options.img_height = 128 #32
 options.img_size = (options.img_height,options.img_width)
 options.multiplier = 2.0
 options.grad_clip = 1.0
+
+# DFS / paper defaults (Sec. IV, Table I, Part 6 supplementary)
+options.split_ratio = (0.7, 0.1, 0.2)  # train / validation / test
+options.split_seed = 10
+options.rule_num = 3                    # K
+options.alpha = 0.7                     # SMC balance (0.3 for LSUN)
+options.ddim_steps = 1000               # paper: 1,000 sampling steps
+options.cfg_scale = 7.5                 # text-conditional CFG
+options.smc_every = 1                   # DFIE membership at every step
 options.SOS = 0
 options.EOS = 1
 options.PAD = 2

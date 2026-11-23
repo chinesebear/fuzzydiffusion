@@ -64,10 +64,11 @@ class Evaluator(nn.Module):
         self.clip_metrics = partial(clip_score, model_name_or_path="openai/clip-vit-base-patch16")
         self.inception_metrics = InceptionScore(normalize=True).to(device)
         self.kid_metrics = KernelInceptionDistance(subset_size=3, normalize=True).to(device)
-        self.psnr_metrics = PeakSignalNoiseRatio().to(options.device)
+        self.psnr_metrics = PeakSignalNoiseRatio().to(device)
         self.ms_ssim_metrics = MultiScaleStructuralSimilarityIndexMeasure(data_range=1.0).to(device)
         self.ssim_metrics = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
-        self.vgg16 = torch.hub.load('pytorch/vision:v0.10.0', 'vgg16', pretrained=True)
+        from torchvision.models import VGG16_Weights, vgg16
+        self.vgg16 = vgg16(weights=VGG16_Weights.DEFAULT)
         self.vgg16.eval()
         self.vgg16.to(device)
         self.to_tensor = ToTensor()
@@ -84,17 +85,22 @@ class Evaluator(nn.Module):
         b,c,h,w = imgs.shape
         imgs_out = torch.empty((b,c,299,299)).to(self.device)
         for i in range(b):
-            imgs_out[i] = self.preprocess(imgs[i])
+            imgs_out[i] = self.preprocess(imgs[i].detach().float().cpu())
         return imgs_out
-        
+
+    def reset(self):
+        """Reset the stateful metrics (call once per evaluation run)."""
+        for metric in (self.fid_metrics, self.mifid_metrics,
+                       self.inception_metrics, self.kid_metrics):
+            if hasattr(metric, "reset"):
+                metric.reset()
 
     def calc_fid(self, real_imgs, fake_imgs):
-        # real_imgs = self.resize299(real_imgs)
-        # fake_imgs = self.resize299(fake_imgs)
+        real_imgs = self.resize299(real_imgs)
+        fake_imgs = self.resize299(fake_imgs)
         self.fid_metrics.update(real_imgs, real=True)
         self.fid_metrics.update(fake_imgs, real=False)
         fid_score = float(self.fid_metrics.compute())
-        # self.fid_metrics.reset()
         return round(fid_score,2)
     
     def calc_mifid(self, real_imgs, fake_imgs):
@@ -108,6 +114,7 @@ class Evaluator(nn.Module):
     def calc_is(self, gen_imgs):
         gen_imgs = self.resize299(gen_imgs)
         self.inception_metrics.update(gen_imgs)
+        # IS is stateful; values are cumulative until reset().
         is_mean, is_std = self.inception_metrics.compute()
         is_score = is_mean
         return round(is_score.item(),2)
@@ -160,8 +167,8 @@ class Evaluator(nn.Module):
     
 if __name__ == '__main__':
     eval = Evaluator()
-    img1 = Image.open("/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/inputs_0.jpg")
-    img2 = Image.open("/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/reconstruction_0.jpg")
+    img1 = Image.open(options.base_path + "doc/test/unconditional/inputs_0.jpg")
+    img2 = Image.open(options.base_path + "doc/test/unconditional/reconstruction_0.jpg")
     
     # acc = eval.calc_accuracy(img1, img2)
     # print(acc)
@@ -170,7 +177,7 @@ if __name__ == '__main__':
     # recall = eval.calc_recall(img1, img2)
     # print(recall)
     
-    test_path="/home/yang/sda/github/fuzzydiffusion/doc/test/unconditional/test.csv"
+    test_path=options.base_path + "doc/test/unconditional/test.csv"
     real_imgs = []
     fake_imgs = []
     with open(test_path, encoding='utf-8') as f:
@@ -191,7 +198,7 @@ if __name__ == '__main__':
     print(f"precision:{precision}")
     print(f"recall:{recall}")
     
-    test_path="/home/yang/sda/github/fuzzydiffusion/doc/test/text-conditional/test.csv"
+    test_path=options.base_path + "doc/test/text-conditional/test.csv"
     imgs=[]
     prompts=[]
     resize = Resize((256,256))
